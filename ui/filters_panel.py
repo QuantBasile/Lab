@@ -56,8 +56,9 @@ class DualListCategorical(ttk.Frame):
 
         # Izquierda (disponibles)
         left = ttk.Frame(body); left.pack(side="left", fill="both", expand=True)
-        ttk.Label(left, text="Disponibles").pack(anchor="w")
-        self.lb_left = tk.Listbox(left, selectmode="extended", exportselection=False, height=height)
+        ttk.Label(left, text="Disponibles").pack(anchor="w", pady=(0, 4))
+        self.lb_left  = tk.Listbox(left,  selectmode="extended", exportselection=False,
+                           height=height, background="#ffffff", relief="solid", borderwidth=1)
         lsb = ttk.Scrollbar(left, orient="vertical", command=self.lb_left.yview)
         self.lb_left.configure(yscrollcommand=lsb.set)
         self.lb_left.pack(side="left", fill="both", expand=True)
@@ -65,13 +66,14 @@ class DualListCategorical(ttk.Frame):
 
         # Centro (botones)
         mid = ttk.Frame(body); mid.pack(side="left", padx=6)
-        ttk.Button(mid, text=">>", command=self._move_right).pack(pady=(20, 4))
+        ttk.Button(mid, text=">>", command=self._move_right).pack(pady=(24, 6))
         ttk.Button(mid, text="<<", command=self._move_left).pack()
 
         # Derecha (seleccionados)
         right = ttk.Frame(body); right.pack(side="left", fill="both", expand=True)
-        ttk.Label(right, text="Seleccionados (se aplican)").pack(anchor="w")
-        self.lb_right = tk.Listbox(right, selectmode="extended", exportselection=False, height=height)
+        ttk.Label(right, text="Seleccionados (se aplican)").pack(anchor="w", pady=(0, 4))
+        self.lb_right = tk.Listbox(right, selectmode="extended", exportselection=False,
+                           height=height, background="#ffffff", relief="solid", borderwidth=1)
         rsb = ttk.Scrollbar(right, orient="vertical", command=self.lb_right.yview)
         self.lb_right.configure(yscrollcommand=rsb.set)
         self.lb_right.pack(side="left", fill="both", expand=True)
@@ -175,8 +177,10 @@ class FiltersPanel(ttk.Frame):
       - reset()
     """
     
-    COL_WIDTH = 400
-    COL_HEIGHT = 200
+    COL_WIDTH = 520
+    COL_HEIGHT = 200   # antes 220
+    NUMERIC_HEIGHT = 140  # <- nuevo para numéricos compactos
+
 
     def __init__(self, master=None):
         super().__init__(master)
@@ -194,24 +198,73 @@ class FiltersPanel(ttk.Frame):
         except tk.TclError:
             pass
 
-        style.configure("Filt.TLabelframe", padding=8)
-        style.configure("Filt.TLabelframe.Label", padding=(4, 0, 4, 0))
-        style.configure("Filt.TEntry", padding=(4, 2))
-        style.configure("Hint.TLabel", foreground="#666")
+        style.configure("CustomNotebook.Tab", padding=(18, 8), borderwidth=0)
+        style.configure("FiltersBody.TFrame", background="#ffffff")
+        style.configure("Filt.TLabelframe", padding=12, background="#ffffff")
+        style.configure("Filt.TLabelframe.Label", padding=(6,0,6,0), background="#ffffff", foreground="#0b0b0b")
+        style.configure("Filt.TEntry", padding=(4,2))
+        style.configure("Hint.TLabel", foreground="#2563eb")
+
+
+
+
+
 
     # ---------- Base scroll horizontal ----------
     def _build_base(self):
-        self._canvas = tk.Canvas(self, height=self.COL_HEIGHT * 3 + 60,
-                                 borderwidth=0, highlightthickness=0)
+        # Alto cómodo (3 filas visibles). El resto se verá con scroll vertical.
+        initial_rows = 3
+        initial_h = self.COL_HEIGHT * initial_rows + 60
+    
+        # --- Canvas con scroll horizontal y vertical ---
+        self._canvas = tk.Canvas(
+            self,
+            background="#ffffff",
+            borderwidth=0,
+            highlightthickness=0,
+            height=initial_h,
+        )
+        # barras de scroll
+        vsb = ttk.Scrollbar(self, orient="vertical",   command=self._canvas.yview)
         hsb = ttk.Scrollbar(self, orient="horizontal", command=self._canvas.xview)
-        self._canvas.configure(xscrollcommand=hsb.set)
-
-        self._inner = ttk.Frame(self._canvas)
+        self._canvas.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+    
+        # contenedor interno
+        self._inner = ttk.Frame(self._canvas, style="FiltersBody.TFrame")
+        # actualizar área scroll cuando cambie el tamaño del contenido
         self._inner.bind("<Configure>", lambda e: self._canvas.configure(scrollregion=self._canvas.bbox("all")))
-        self._canvas.create_window((0, 0), window=self._inner, anchor="nw")
+        self._window_id = self._canvas.create_window((0, 0), window=self._inner, anchor="nw")
+    
+        # layout: canvas a la izquierda, vsb a la derecha, hsb abajo
+        self._canvas.pack(side="left", fill="both", expand=True)
+        vsb.pack(side="right", fill="y")
+        hsb.pack(side="bottom", fill="x")
+    
+        # --- Wheel bindings: rueda = vertical; Shift+rueda = horizontal ---
+        def _on_mousewheel(event):
+            # Windows/Mac usan event.delta; X11 usa Button-4/5
+            if event.num == 5 or event.delta < 0:
+                self._canvas.yview_scroll(1, "units")
+            elif event.num == 4 or event.delta > 0:
+                self._canvas.yview_scroll(-1, "units")
+            return "break"
+    
+        def _on_shift_mousewheel(event):
+            if event.num == 5 or event.delta < 0:
+                self._canvas.xview_scroll(1, "units")
+            elif event.num == 4 or event.delta > 0:
+                self._canvas.xview_scroll(-1, "units")
+            return "break"
+    
+        # Windows/Mac
+        self._canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        self._canvas.bind_all("<Shift-MouseWheel>", _on_shift_mousewheel)
+        # X11 (Linux)
+        self._canvas.bind_all("<Button-4>", _on_mousewheel)
+        self._canvas.bind_all("<Button-5>", _on_mousewheel)
 
-        self._canvas.pack(side="top", fill="x", expand=True)
-        hsb.pack(side="top", fill="x")
+
+
 
     # ---------- Construcción dinámica ----------
     def build(self, df: pd.DataFrame):
@@ -219,19 +272,20 @@ class FiltersPanel(ttk.Frame):
         for child in self._inner.winfo_children():
             child.destroy()
         self._controls.clear()
+        
 
         cols = list(df.columns)
         ROWS = 3
         cols_per_row = math.ceil(len(cols) / ROWS)
         
         for i, col in enumerate(cols):
-            r = i // cols_per_row      # fila 0..ROWS-1
-            c = i % cols_per_row       # columna dentro de la fila
+            r = i // cols_per_row
+            c = i % cols_per_row
         
             colframe = ttk.LabelFrame(self._inner, text=col, style="Filt.TLabelframe")
-            colframe.grid(row=r, column=c, padx=8, pady=8, sticky="nw")
-        
+            colframe.grid(row=r, column=c, padx=12, pady=12, sticky="nw")
             colframe.pack_propagate(False)
+            # compacta numéricos con altura menor, el resto altura normal
             colframe.configure(width=self.COL_WIDTH, height=self.COL_HEIGHT)
         
             s = df[col]
@@ -258,8 +312,10 @@ class FiltersPanel(ttk.Frame):
     
         if HAS_TKCAL:
             start_var = tk.StringVar()
-            start_w = DateEntry(row, width=12, date_pattern="yyyy-mm-dd",
-                                textvariable=start_var)
+            start_w = DateEntry(row, width=12, date_pattern="yyyy-mm-dd", textvariable=start_var,
+                    background="#e6f0ff", foreground="#000000", bordercolor="#cbd5ff",
+                    headersbackground="#e6f0ff", normalbackground="#ffffff",
+                    weekendbackground="#ffffff", othermonthbackground="#ffffff")
             start_w.pack(side="left")
         else:
             start_var = tk.StringVar()
@@ -287,33 +343,38 @@ class FiltersPanel(ttk.Frame):
     
         self._controls[col] = {"type": "date", "start": start_var, "end": end_var}
 
-
     def _build_numeric(self, parent, col, s: pd.Series):
-        vmin = s.min(); vmax = s.max()
+        vmin, vmax = s.min(), s.max()
         min_var = tk.StringVar(value=str(vmin))
         max_var = tk.StringVar(value=str(vmax))
     
-        # Una sola fila, ancho reducido
-        row = ttk.Frame(parent); row.pack(anchor="w")
+        # Reducir altura de la tarjeta numérica
+        try:
+            parent.configure(height=self.NUMERIC_HEIGHT)
+        except Exception:   
+            pass
+    
+        row = ttk.Frame(parent); row.pack(anchor="w", pady=(0, 2))
         ttk.Label(row, text="Min").pack(side="left", padx=(0, 4))
         ttk.Entry(row, textvariable=min_var, width=8, style="Filt.TEntry").pack(side="left", padx=(0, 8))
         ttk.Label(row, text="Max").pack(side="left", padx=(0, 4))
         ttk.Entry(row, textvariable=max_var, width=8, style="Filt.TEntry").pack(side="left")
     
-        # Pista de valores actuales (gris)
-        ttk.Label(parent, text=f"Actual: [{vmin} … {vmax}]", style="Hint.TLabel").pack(anchor="w", pady=(6, 0))
+        hint = ttk.Label(parent, text=f"Actual: [{vmin} … {vmax}]", style="Hint.TLabel")
+        hint.pack(anchor="w", pady=(6, 0))
     
-        # Restaurar a min/max reales del dataset
         ttk.Button(parent, text="Restaurar",
                    command=lambda: (min_var.set(str(vmin)), max_var.set(str(vmax)))
                    ).pack(anchor="w", pady=(6, 0))
     
         self._controls[col] = {"type": "numeric", "min": min_var, "max": max_var, "_bounds": (vmin, vmax)}
 
+
     def _build_categorical(self, parent, col, s: pd.Series):
         values = pd.Index(s.astype(str).unique()).dropna().tolist()
         dual = DualListCategorical(parent, values=values, height=10)
-        dual.pack(fill="x")
+        dual.pack(fill="both", expand=True, padx=6, pady=2)
+
         self._controls[col] = {"type": "categorical", "dual": dual}
 
     # ---------- API pública ----------

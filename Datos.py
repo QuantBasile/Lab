@@ -10,7 +10,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 
-def create_fake_transactions(n_rows=1_000_000):
+def create_fake_transactions(n_rows=1_000):
     np.random.seed(42)
 
     # --- ISIN-like generators ---

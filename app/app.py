@@ -13,10 +13,6 @@ from utils.logging_config import configure_logging
 
 
 
-
-
-
-
 def run():
     configure_logging()
     root = tk.Tk()
@@ -24,49 +20,80 @@ def run():
     root.geometry("1200x700")
     
     
-    # --- ESTILO GLOBAL TIPO Paarchen (Treeview pro) ---
-    PALETTE = {
-        "bg":"#f5f7fb","panel":"#ffffff","panel2":"#f0f3f9",
-        "heading_bg":"#111827","heading_fg":"#ffffff",
-        "row_even":"#fbfdff","row_odd":"#f2f6fb","hl":"#fff3c4",
+    from tkinter import ttk
+
+    PAL = {
+        "page": "#ffffff",
+        "topbar": "#1e40af",  "topbar_fg": "#ffffff",
+        "panel": "#ffffff",
+        "sidebar": "#e6f0ff",
+        "actions": "#eef4ff",
+        "primary": "#2563eb", "primary_fg": "#ffffff",
+        "primary_active": "#1d4ed8",
+        "tab_bg": "#e6f0ff", "tab_sel_bg": "#2563eb",
+        "tab_sel_fg": "#ffffff", "tab_fg": "#0b0b0b",
     }
-    try:
-        root.configure(bg=PALETTE["bg"])
-    except Exception:
-        pass
     
+    root.configure(bg=PAL["page"])
     style = ttk.Style(root)
-    try:
-        style.theme_use("clam")
-    except Exception:
-        pass
+    try: style.theme_use("clam")
+    except: pass
     
-    # Fuentes “tipo Segoe” si están disponibles; si no, caerá en TkDefaultFont sin romper
-    default_font = ("Segoe UI", 11)
-    header_font  = ("Segoe UI Semibold", 11)
+    # Topbar
+    style.configure("Topbar.TFrame", background=PAL["topbar"])
+    style.configure("Topbar.TLabel", background=PAL["topbar"], foreground=PAL["topbar_fg"],
+                    font=("Segoe UI Semibold", 12))
     
+    # Sidebar
+    style.configure("Sidebar.TFrame", background=PAL["sidebar"])
+    style.configure("SidebarHeader.TLabel", background=PAL["sidebar"], foreground="#0b0b0b",
+                    font=("Segoe UI Semibold", 10))
+    style.configure("Nav.TButton", padding=(10, 8), anchor="w")
+    style.map("Nav.TButton", background=[("active", "#d9e8ff")])
+    
+    # Actions bar
+    style.configure("Actions.TFrame", background=PAL["actions"])
+    
+    # Cards / notebook
+    style.configure("Card.TFrame", background=PAL["panel"])
+    style.configure("CardInner.TFrame", background=PAL["panel"], padding=(12, 10))
+    
+    # --- Tabs con estilo (Notebook) ---
+    style.configure("CustomNotebook", background=PAL["panel"], borderwidth=0)
+    # ==== Estilo custom para Notebook (tabs) ====
+    # 1) Registrar el layout base para que exista "CustomNotebook"
+    style.layout("CustomNotebook", style.layout("TNotebook"))
+    # 2) Registrar el layout de las pestañas
+    style.layout("CustomNotebook.Tab", style.layout("TNotebook.Tab"))
+    
+    # 3) Configurar el propio Notebook
+    style.configure("CustomNotebook", background=PAL["panel"], borderwidth=0)
+    
+    # 4) Estilo de pestañas tipo "chips"
     style.configure(
-        "Treeview",
-        background=PALETTE["panel"],
-        foreground="#111111",
-        rowheight=28,
-        fieldbackground=PALETTE["panel"],
-        font=default_font,
+        "CustomNotebook.Tab",
+        padding=(20, 10),
         borderwidth=0,
-    )
-    style.configure(
-        "Treeview.Heading",
-        background=PALETTE["heading_bg"],
-        foreground=PALETTE["heading_fg"],
-        font=header_font,
-        relief="flat",
-        padding=(8, 6),
+        font=("Segoe UI Semibold", 10),
+        background="#e6f0ff",   # inactiva
+        foreground="#0b0b0b",
     )
     style.map(
-        "Treeview",
-        background=[("selected", "#cfe8ff")],
-        foreground=[("selected", "#111111")],
+        "CustomNotebook.Tab",
+        background=[("selected", "#2563eb")],  # activa
+        foreground=[("selected", "#ffffff")],
     )
+
+
+    
+    # Botones ttk (por si los usas en otras partes)
+    style.configure("Primary.TButton", background=PAL["primary"], foreground=PAL["primary_fg"], padding=(12, 6))
+    style.map("Primary.TButton", background=[("active", PAL["primary_active"])])
+    style.configure("Secondary.TButton", padding=(10, 5))
+
+
+
+
     
     
     app = MainWindow(master=root)

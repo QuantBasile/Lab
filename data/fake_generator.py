@@ -78,4 +78,6 @@ def create_fake_transactions(n_rows: int = 1_000_000, months: int = 3) -> pd.Dat
     "NBR_OF_TRADES", "CALL_OPTION", "NBR_OF_UNITS",
     "TRANSACTION_DATE", "TXN_AMT", "EXPIRY", "TYPE", "RATIO", "STRIKE"
     ]
+    
+    
     return df[ordered_cols]

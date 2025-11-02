@@ -94,12 +94,11 @@ class MainWindow(tk.Frame):
         # Panel de filtros (ocultable)
         self.filters_wrap = ttk.Frame(inner, style="Card.TFrame")
         self.filters_panel = FiltersPanel(self.filters_wrap)
-
+        
         # Notebook con tabs
         self.nb = ttk.Notebook(inner, style="CustomNotebook")
         self.nb.pack(side="top", fill="both", expand=True, padx=10, pady=(0, 10))
         
-
         # Tab 0: Table
         tab_table = ttk.Frame(self.nb)
         self.table = TableFrame(tab_table)

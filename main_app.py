@@ -11,3 +11,8 @@ from app.app import run
 
 if __name__ == "__main__":
     run()
+    
+#todo filtros que se expandan mejor
+#volume sheet acabarlo
+#leyenda de los emitentes!
+#media movil!

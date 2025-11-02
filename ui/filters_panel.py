@@ -1,22 +1,12 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Fri Oct 31 23:29:39 2025
-
-@author: fran
-"""
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 # ui/filters_panel.py
 import tkinter as tk
 from tkinter import ttk
-import pandas as pd
-from pandas.api.types import (
-    is_numeric_dtype, is_bool_dtype, is_datetime64_any_dtype
-)
+import tkinter.font as tkFont
 import math
-# Calendario opcional
+import pandas as pd
+from pandas.api.types import is_numeric_dtype, is_datetime64_any_dtype, is_bool_dtype
+
+# --- Opcional: calendario ---
 try:
     from tkcalendar import DateEntry
     HAS_TKCAL = True
@@ -24,392 +14,402 @@ except Exception:
     HAS_TKCAL = False
 
 
-
-
-
-# -------------------- Dual list para categóricos (drag & drop) --------------------
-class DualListCategorical(ttk.Frame):
-    """
-    Dos columnas: 'Disponibles' (izq) y 'Seleccionados' (der) con drag & drop.
-    - Buscador para filtrar la lista izquierda.
-    - Botones >> / << por accesibilidad.
-    API:
-      - get_selected() -> list[str]
-      - reset()        -> limpia seleccionados y recarga disponibles
-    """
-    def __init__(self, master, values, *, height=10):
-        super().__init__(master)
-        self.all_values = sorted([str(v) for v in values])
-        self._drag_data = {"source": None, "value": None}
-        self._build(height)
-
-    def _build(self, height):
-        # Top: buscador
-        top = ttk.Frame(self); top.pack(fill="x")
-        ttk.Label(top, text="Buscar").pack(side="left")
-        self.search_var = tk.StringVar()
-        entry = ttk.Entry(top, textvariable=self.search_var, width=24)
-        entry.pack(side="left", padx=(6, 0))
-        self.search_var.trace_add("write", lambda *_: self._reload_available())
-
-        body = ttk.Frame(self); body.pack(fill="both", expand=True, pady=(4, 0))
-
-        # Izquierda (disponibles)
-        left = ttk.Frame(body); left.pack(side="left", fill="both", expand=True)
-        ttk.Label(left, text="Disponibles").pack(anchor="w", pady=(0, 4))
-        self.lb_left  = tk.Listbox(left,  selectmode="extended", exportselection=False,
-                           height=height, background="#ffffff", relief="solid", borderwidth=1)
-        lsb = ttk.Scrollbar(left, orient="vertical", command=self.lb_left.yview)
-        self.lb_left.configure(yscrollcommand=lsb.set)
-        self.lb_left.pack(side="left", fill="both", expand=True)
-        lsb.pack(side="right", fill="y")
-
-        # Centro (botones)
-        mid = ttk.Frame(body); mid.pack(side="left", padx=6)
-        ttk.Button(mid, text=">>", command=self._move_right).pack(pady=(24, 6))
-        ttk.Button(mid, text="<<", command=self._move_left).pack()
-
-        # Derecha (seleccionados)
-        right = ttk.Frame(body); right.pack(side="left", fill="both", expand=True)
-        ttk.Label(right, text="Seleccionados (se aplican)").pack(anchor="w", pady=(0, 4))
-        self.lb_right = tk.Listbox(right, selectmode="extended", exportselection=False,
-                           height=height, background="#ffffff", relief="solid", borderwidth=1)
-        rsb = ttk.Scrollbar(right, orient="vertical", command=self.lb_right.yview)
-        self.lb_right.configure(yscrollcommand=rsb.set)
-        self.lb_right.pack(side="left", fill="both", expand=True)
-        rsb.pack(side="right", fill="y")
-
-        self._reload_available()
-
-        # Drag & Drop básico
-        for lb in (self.lb_left, self.lb_right):
-            lb.bind("<ButtonPress-1>", self._on_drag_start)
-            lb.bind("<B1-Motion>", self._on_drag_motion)
-            lb.bind("<ButtonRelease-1>", self._on_drag_drop)
-
-    # --------- helpers de lista ---------
-    def _fill(self, lb, items):
-        lb.delete(0, "end")
-        for v in items:
-            lb.insert("end", v)
-
-    def _listbox_items(self, lb):
-        return [lb.get(i) for i in range(lb.size())]
-
-    def _reload_available(self):
-        q = self.search_var.get().strip().lower()
-        current_right = set(self._listbox_items(self.lb_right))
-        items = [v for v in self.all_values if (not q or q in v.lower()) and v not in current_right]
-        self._fill(self.lb_left, items)
-
-    def _move_right(self):
-        sel = [self.lb_left.get(i) for i in self.lb_left.curselection()]
-        if not sel:
-            return
-        right_items = set(self._listbox_items(self.lb_right))
-        for v in sel:
-            if v not in right_items:
-                self.lb_right.insert("end", v)
-        self._reload_available()
-
-    def _move_left(self):
-        sel_idx = list(self.lb_right.curselection())
-        sel_idx.sort(reverse=True)
-        for i in sel_idx:
-            self.lb_right.delete(i)
-        self._reload_available()
-
-    # --------- Drag & Drop ---------
-    def _on_drag_start(self, event):
-        lb = event.widget
-        idx = lb.nearest(event.y)
-        if idx < 0:
-            return
-        self._drag_data["source"] = lb
-        self._drag_data["value"] = lb.get(idx)
-
-    def _on_drag_motion(self, event):
-        # (opcional) resaltar destino o cambiar cursor
-        pass
-
-    def _on_drag_drop(self, event):
-        src = self._drag_data["source"]
-        val = self._drag_data["value"]
-        self._drag_data = {"source": None, "value": None}
-        if not src or val is None:
-            return
-        dst = event.widget
-        if dst not in (self.lb_left, self.lb_right):
-            return
-
-        if src is self.lb_left and dst is self.lb_right:
-            # mover izquierda -> derecha
-            if val not in self._listbox_items(self.lb_right):
-                self.lb_right.insert("end", val)
-            self._reload_available()
-        elif src is self.lb_right and dst is self.lb_left:
-            # mover derecha -> izquierda
-            items = self._listbox_items(self.lb_right)
-            if val in items:
-                idx = items.index(val)
-                self.lb_right.delete(idx)
-            self._reload_available()
-
-    # --------- API público ---------
-    def get_selected(self):
-        return self._listbox_items(self.lb_right)
-
-    def reset(self):
-        self.lb_right.delete(0, "end")
-        self._reload_available()
-
-
-# ------------------------------ Panel principal de filtros ------------------------------
 class FiltersPanel(ttk.Frame):
     """
-    Panel dinámico de filtros por columna (orden del DataFrame).
-      - Numéricos: min/max + "Restaurar"
-      - Categóricos: dual-list con DnD (izq disponibles / der seleccionados)
-      - Fechas: desde / hasta + "Limpiar"
-    API:
-      - build(df: pd.DataFrame)
-      - get_filters() -> dict
-      - reset()
+    Filtros con cards:
+      - Categóricos: chip NEGRO (blanco sobre negro), listas blanco/negro, doble lista simétrica.
+      - Numéricos: chip AZUL, Min/Max iguales, Limpiar.
+      - Fechas: chip VERDE.
+    Todo el interior y contenedores en BLANCO (sin fondos grises).
+    Scroll vertical + horizontal.
     """
-    
-    COL_WIDTH = 520
-    COL_HEIGHT = 200   # antes 220
-    NUMERIC_HEIGHT = 140  # <- nuevo para numéricos compactos
 
+    # Layout
+    PADX = 12
+    PADY = 12
+    ROWS = 4
+
+    # Alturas compactas por tipo
+    CARD_H_CATEG = 160
+    CARD_H_NUM   = 100
+    CARD_H_DATE  = 110
+
+    # Anchos máximos
+    COL_WIDTH_MAX = 560
+
+    # Sombra sutil
+    SHADOW_OFFSET = 2
+    SHADOW_COLOR  = "#e9efff"
+
+    # Listas: ancho (caracteres)
+    MIN_LIST_CHARS = 1
+    MAX_LIST_CHARS = 30
 
     def __init__(self, master=None):
         super().__init__(master)
         self._controls = {}
-        self._canvas = None
-        self._inner = None
-        self._styles()
+        self._df = None
+        self._build_styles()
         self._build_base()
 
-    # ---------- Estilos ----------
-    def _styles(self):
-        style = ttk.Style(self)
+    # ----------------- Estilos -----------------
+    def _build_styles(self):
+        st = ttk.Style(self)
         try:
-            style.theme_use("clam")
+            st.theme_use("clam")
         except tk.TclError:
             pass
 
-        style.configure("CustomNotebook.Tab", padding=(18, 8), borderwidth=0)
-        style.configure("FiltersBody.TFrame", background="#ffffff")
-        style.configure("Filt.TLabelframe", padding=12, background="#ffffff")
-        style.configure("Filt.TLabelframe.Label", padding=(6,0,6,0), background="#ffffff", foreground="#0b0b0b")
-        style.configure("Filt.TEntry", padding=(4,2))
-        style.configure("Hint.TLabel", foreground="#2563eb")
+        # Paleta
+        self.WHITE        = "#ffffff"
+        self.BORDER       = "#c7d2fe"
+        self.BLUE         = "#2563eb"   # título numéricos
+        self.GREEN        = "#059669"   # título fechas
+        self.BLACK        = "#000000"   # título categóricos
+        self.TITLE_FG     = "#ffffff"
 
+        # Todo blanco por defecto
+        st.configure("FiltersBody.TFrame", background=self.WHITE)
+        st.configure("White.TFrame", background=self.WHITE)
+        st.configure("White.TLabel", background=self.WHITE)
 
+        # Cards base
+        st.configure("BaseCard.TLabelframe",
+                     background=self.WHITE,
+                     relief="solid",
+                     bordercolor=self.BORDER,
+                     borderwidth=1)
+        # Variantes de chip (título)
+        st.configure("NumCard.TLabelframe",  background=self.WHITE, relief="solid", bordercolor=self.BORDER, borderwidth=1)
+        st.configure("NumCard.TLabelframe.Label",
+                     background=self.BLUE, foreground=self.TITLE_FG,
+                     padding=(8, 2), font=("Segoe UI Semibold", 9))
 
+        st.configure("DateCard.TLabelframe", background=self.WHITE, relief="solid", bordercolor=self.BORDER, borderwidth=1)
+        st.configure("DateCard.TLabelframe.Label",
+                     background=self.GREEN, foreground=self.TITLE_FG,
+                     padding=(8, 2), font=("Segoe UI Semibold", 9))
 
+        st.configure("CatCard.TLabelframe",  background=self.WHITE, relief="solid", bordercolor=self.BORDER, borderwidth=1)
+        st.configure("CatCard.TLabelframe.Label",
+                     background=self.BLACK, foreground=self.TITLE_FG,
+                     padding=(8, 2), font=("Segoe UI Semibold", 9))
 
+        st.configure("Filt.TEntry", padding=(3, 2))
+        st.configure("Hint.TLabel", foreground=self.BLUE, background=self.WHITE)
 
-    # ---------- Base scroll horizontal ----------
+    # ----------------- Base: canvas + scroll -----------------
     def _build_base(self):
-        # Alto cómodo (3 filas visibles). El resto se verá con scroll vertical.
-        initial_rows = 3
-        initial_h = self.COL_HEIGHT * initial_rows + 60
-    
-        # --- Canvas con scroll horizontal y vertical ---
+        initial_h = self.CARD_H_CATEG * 3 + 60
+
         self._canvas = tk.Canvas(
-            self,
-            background="#ffffff",
-            borderwidth=0,
-            highlightthickness=0,
-            height=initial_h,
+            self, background=self.WHITE,
+            borderwidth=0, highlightthickness=0,
+            height=initial_h
         )
-        # barras de scroll
-        vsb = ttk.Scrollbar(self, orient="vertical",   command=self._canvas.yview)
-        hsb = ttk.Scrollbar(self, orient="horizontal", command=self._canvas.xview)
-        self._canvas.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
-    
-        # contenedor interno
+        self._vsb = ttk.Scrollbar(self, orient="vertical", command=self._canvas.yview)
+        self._hsb = ttk.Scrollbar(self, orient="horizontal", command=self._canvas.xview)
+        self._canvas.configure(yscrollcommand=self._vsb.set, xscrollcommand=self._hsb.set)
+
         self._inner = ttk.Frame(self._canvas, style="FiltersBody.TFrame")
-        # actualizar área scroll cuando cambie el tamaño del contenido
+        self._inner_id = self._canvas.create_window((0, 0), window=self._inner, anchor="nw")
         self._inner.bind("<Configure>", lambda e: self._canvas.configure(scrollregion=self._canvas.bbox("all")))
-        self._window_id = self._canvas.create_window((0, 0), window=self._inner, anchor="nw")
-    
-        # layout: canvas a la izquierda, vsb a la derecha, hsb abajo
+
         self._canvas.pack(side="left", fill="both", expand=True)
-        vsb.pack(side="right", fill="y")
-        hsb.pack(side="bottom", fill="x")
-    
-        # --- Wheel bindings: rueda = vertical; Shift+rueda = horizontal ---
+        self._vsb.pack(side="right", fill="y")
+        self._hsb.pack(side="bottom", fill="x")
+
+        # Rueda: vertical; Shift+rueda: horizontal
         def _on_mousewheel(event):
-            # Windows/Mac usan event.delta; X11 usa Button-4/5
             if event.num == 5 or event.delta < 0:
                 self._canvas.yview_scroll(1, "units")
             elif event.num == 4 or event.delta > 0:
                 self._canvas.yview_scroll(-1, "units")
             return "break"
-    
+
         def _on_shift_mousewheel(event):
             if event.num == 5 or event.delta < 0:
                 self._canvas.xview_scroll(1, "units")
             elif event.num == 4 or event.delta > 0:
                 self._canvas.xview_scroll(-1, "units")
             return "break"
-    
-        # Windows/Mac
+
         self._canvas.bind_all("<MouseWheel>", _on_mousewheel)
         self._canvas.bind_all("<Shift-MouseWheel>", _on_shift_mousewheel)
-        # X11 (Linux)
-        self._canvas.bind_all("<Button-4>", _on_mousewheel)
+        self._canvas.bind_all("<Button-4>", _on_mousewheel)  # Linux
         self._canvas.bind_all("<Button-5>", _on_mousewheel)
 
-
-
-
-    # ---------- Construcción dinámica ----------
+    # ----------------- API -----------------
     def build(self, df: pd.DataFrame):
-        # limpiar
-        for child in self._inner.winfo_children():
-            child.destroy()
+        # Limpiar
+        for w in self._inner.winfo_children():
+            w.destroy()
         self._controls.clear()
-        
+        self._df = df.copy()
 
+        font = tkFont.Font(family="Segoe UI", size=10)
+        px_char = max(1, font.measure("0"))
+
+        # 1) Ancho óptimo de listbox por columna (caracteres)
+        list_chars_by_col = {}
+        for c in df.columns:
+            sample = df[c].astype(str).dropna().unique()[:150]
+            if sample.size == 0:
+                list_chars_by_col[c] = self.MIN_LIST_CHARS
+                continue
+            longest = max(sample, key=len)
+            px_long = font.measure(longest)
+            chars = math.ceil((px_long + 10) / px_char)
+            list_chars_by_col[c] = max(self.MIN_LIST_CHARS, min(self.MAX_LIST_CHARS, chars))
+
+        # 2) Distribución
         cols = list(df.columns)
-        ROWS = 3
-        cols_per_row = math.ceil(len(cols) / ROWS)
-        
+        rows = self.ROWS
+        cols_per_row = max(1, math.ceil(len(cols) / rows))
+
         for i, col in enumerate(cols):
             r = i // cols_per_row
             c = i % cols_per_row
-        
-            colframe = ttk.LabelFrame(self._inner, text=col, style="Filt.TLabelframe")
-            colframe.grid(row=r, column=c, padx=12, pady=12, sticky="nw")
-            colframe.pack_propagate(False)
-            # compacta numéricos con altura menor, el resto altura normal
-            colframe.configure(width=self.COL_WIDTH, height=self.COL_HEIGHT)
-        
+
             s = df[col]
             is_date_name = col.upper().endswith("DATE") or col.upper() in {"TRANSACTION_DATE", "EXPIRY"}
-            if is_datetime64_any_dtype(s) or is_date_name:
+            is_numeric = is_numeric_dtype(s) and not is_bool_dtype(s)
+            is_categ = not (is_date_name or is_numeric)
+
+            # ====== Cálculo de ancho de card por tipo ======
+            if is_categ:
+                list_chars = list_chars_by_col.get(col, self.MIN_LIST_CHARS)
+                # ancho de UNA listbox en píxeles (caracteres + margen muy pequeño)
+                list_px = int(list_chars * px_char + 8)
+                buttons_px = 44          # columna de botones ">>" y "<<"
+                tail_padding = 12        # padding visual tras la columna derecha
+            
+                # ¡Ceñido! 2 listas + botones + un pequeño padding final
+                card_w = min(max(2 * list_px + buttons_px + tail_padding, 100), self.COL_WIDTH_MAX)
+                card_h = self.CARD_H_CATEG
+
+
+            # ====== CONTENEDOR blanco con sombra ======
+            wrapper = ttk.Frame(self._inner, style="White.TFrame")
+            wrapper.grid(row=r, column=c, padx=self.PADX, pady=self.PADY, sticky="nw")
+            wrapper.configure(width=card_w + self.SHADOW_OFFSET, height=card_h + self.SHADOW_OFFSET)
+            wrapper.pack_propagate(False)
+
+            shadow = tk.Frame(wrapper, bg=self.SHADOW_COLOR, bd=0, highlightthickness=0)
+            shadow.place(x=self.SHADOW_OFFSET, y=self.SHADOW_OFFSET, width=card_w, height=card_h)
+
+            if is_date_name:
+                colframe = ttk.LabelFrame(wrapper, text=col, style="DateCard.TLabelframe")
+                colframe.place(x=0, y=0, width=card_w, height=card_h)
                 self._build_date(colframe, col)
-            elif is_numeric_dtype(s) and not is_bool_dtype(s):
-                self._build_numeric(colframe, col, s)
+            elif is_numeric:
+                colframe = ttk.LabelFrame(wrapper, text=col, style="NumCard.TLabelframe")
+                colframe.place(x=0, y=0, width=card_w, height=card_h)
+                self._build_numeric(colframe, col)
             else:
-                self._build_categorical(colframe, col, s)
+                colframe = ttk.LabelFrame(wrapper, text=col, style="CatCard.TLabelframe")
+                colframe.place(x=0, y=0, width=card_w, height=card_h)
+                list_chars = list_chars_by_col.get(col, self.MIN_LIST_CHARS)
+                self._build_categorical(colframe, col, s, list_chars)
 
-
-        # Recalcular scroll
         self._inner.update_idletasks()
         self._canvas.configure(scrollregion=self._canvas.bbox("all"))
-        self._canvas.xview_moveto(0.0)  # empieza mostrando la primera columna
 
-
-    # ---------- Subcomponentes ----------
-    def _build_date(self, parent, col):
-        # Contenedor compacto (dos columnas)
-        row = ttk.Frame(parent); row.pack(anchor="w", pady=(0, 4))
-        ttk.Label(row, text="Desde").pack(side="left", padx=(0, 6))
-    
-        if HAS_TKCAL:
-            start_var = tk.StringVar()
-            start_w = DateEntry(row, width=12, date_pattern="yyyy-mm-dd", textvariable=start_var,
-                    background="#e6f0ff", foreground="#000000", bordercolor="#cbd5ff",
-                    headersbackground="#e6f0ff", normalbackground="#ffffff",
-                    weekendbackground="#ffffff", othermonthbackground="#ffffff")
-            start_w.pack(side="left")
-        else:
-            start_var = tk.StringVar()
-            start_w = ttk.Entry(row, textvariable=start_var, width=12, style="Filt.TEntry")
-            start_w.pack(side="left")
-    
-        row2 = ttk.Frame(parent); row2.pack(anchor="w", pady=(6, 0))
-        ttk.Label(row2, text="Hasta").pack(side="left", padx=(0, 6))
-    
-        if HAS_TKCAL:
-            end_var = tk.StringVar()
-            end_w = DateEntry(row2, width=12, date_pattern="yyyy-mm-dd",
-                              textvariable=end_var)
-            end_w.pack(side="left")
-        else:
-            end_var = tk.StringVar()
-            end_w = ttk.Entry(row2, textvariable=end_var, width=12, style="Filt.TEntry")
-            end_w.pack(side="left")
-    
-        # Ayuda + limpiar
-        ttk.Label(parent, text="Formato: YYYY-MM-DD", style="Hint.TLabel").pack(anchor="w", pady=(6, 0))
-        ttk.Button(parent, text="Limpiar",
-                   command=lambda: (start_var.set(""), end_var.set(""))
-                   ).pack(anchor="w", pady=(8, 0))
-    
-        self._controls[col] = {"type": "date", "start": start_var, "end": end_var}
-
-    def _build_numeric(self, parent, col, s: pd.Series):
-        vmin, vmax = s.min(), s.max()
-        min_var = tk.StringVar(value=str(vmin))
-        max_var = tk.StringVar(value=str(vmax))
-    
-        # Reducir altura de la tarjeta numérica
-        try:
-            parent.configure(height=self.NUMERIC_HEIGHT)
-        except Exception:   
-            pass
-    
-        row = ttk.Frame(parent); row.pack(anchor="w", pady=(0, 2))
-        ttk.Label(row, text="Min").pack(side="left", padx=(0, 4))
-        ttk.Entry(row, textvariable=min_var, width=8, style="Filt.TEntry").pack(side="left", padx=(0, 8))
-        ttk.Label(row, text="Max").pack(side="left", padx=(0, 4))
-        ttk.Entry(row, textvariable=max_var, width=8, style="Filt.TEntry").pack(side="left")
-    
-        hint = ttk.Label(parent, text=f"Actual: [{vmin} … {vmax}]", style="Hint.TLabel")
-        hint.pack(anchor="w", pady=(6, 0))
-    
-        ttk.Button(parent, text="Restaurar",
-                   command=lambda: (min_var.set(str(vmin)), max_var.set(str(vmax)))
-                   ).pack(anchor="w", pady=(6, 0))
-    
-        self._controls[col] = {"type": "numeric", "min": min_var, "max": max_var, "_bounds": (vmin, vmax)}
-
-
-    def _build_categorical(self, parent, col, s: pd.Series):
-        values = pd.Index(s.astype(str).unique()).dropna().tolist()
-        dual = DualListCategorical(parent, values=values, height=10)
-        dual.pack(fill="both", expand=True, padx=6, pady=2)
-
-        self._controls[col] = {"type": "categorical", "dual": dual}
-
-    # ---------- API pública ----------
-    def get_filters(self) -> dict:
+    def get_filters(self):
         spec = {}
-        for col, ctrl in self._controls.items():
-            t = ctrl["type"]
-            if t == "numeric":
-                vmin = ctrl["min"].get().strip()
-                vmax = ctrl["max"].get().strip()
-                vmin = float(vmin) if vmin != "" else None
-                vmax = float(vmax) if vmax != "" else None
-                if vmin is not None or vmax is not None:
+        for col, meta in self._controls.items():
+            t = meta.get("type")
+            if t == "categorical":
+                vals = meta["get"]()
+                if vals:
+                    spec[col] = {"type": "categorical", "values": vals}
+            elif t == "numeric":
+                vmin = meta["min"].get().strip()
+                vmax = meta["max"].get().strip()
+                if vmin != "" or vmax != "":
                     spec[col] = {"type": "numeric", "min": vmin, "max": vmax}
-
-            elif t == "categorical":
-                sel = ctrl["dual"].get_selected()
-                if sel:
-                    spec[col] = {"type": "categorical", "values": sel}
-
             elif t == "date":
-                start = ctrl["start"].get().strip()
-                end = ctrl["end"].get().strip()
-                if start or end:
-                    spec[col] = {"type": "date", "start": start or None, "end": end or None}
+                start = meta["start"].get().strip()
+                end = meta["end"].get().strip()
+                if start != "" or end != "":
+                    spec[col] = {"type": "date", "start": start, "end": end}
         return spec
 
     def reset(self):
-        for _, ctrl in self._controls.items():
-            t = ctrl["type"]
-            if t == "numeric":
-                ctrl["min"].set("")
-                ctrl["max"].set("")
-            elif t == "categorical":
-                ctrl["dual"].reset()
+        for meta in self._controls.values():
+            t = meta.get("type")
+            if t == "categorical":
+                meta["reset"]()
+            elif t == "numeric":
+                meta["min"].set("")
+                meta["max"].set("")
             elif t == "date":
-                ctrl["start"].set("")
-                ctrl["end"].set("")
+                meta["start"].set("")
+                meta["end"].set("")
+
+    # ----------------- Builders -----------------
+    def _build_categorical(self, parent, col, s: pd.Series, list_chars: int):
+        values = sorted(v for v in s.astype(str).dropna().unique())
+
+        # Buscador (todo blanco)
+        sr = ttk.Frame(parent, style="White.TFrame"); sr.place(x=8, y=8)
+        ttk.Label(sr, text="Buscar", style="White.TLabel").pack(side="left")
+        entry = ttk.Entry(sr, width=min(list_chars + 2, self.MAX_LIST_CHARS + 2), style="Filt.TEntry")
+        entry.pack(side="left", padx=(6, 0))
+
+        # Contenido dual-list con GRID simétrico (todo blanco)
+        dl = ttk.Frame(parent, style="White.TFrame")
+        dl.place(x=8, y=36)
+
+        # ancho igual para ambas listas (en caracteres)
+        lb_kwargs = dict(
+            height=7, width=list_chars,
+            background=self.WHITE, foreground="#000000",
+            selectbackground=self.BLUE, selectforeground=self.WHITE,
+            relief="solid", borderwidth=1, exportselection=False
+        )
+
+        # Listas + scroll horizontal (ISIN largos)
+        left_wrap  = ttk.Frame(dl, style="White.TFrame")
+        right_wrap = ttk.Frame(dl, style="White.TFrame")
+
+        lb_left  = tk.Listbox(left_wrap,  **lb_kwargs)
+        lb_right = tk.Listbox(right_wrap, **lb_kwargs)
+
+        hsb_left  = ttk.Scrollbar(left_wrap, orient="horizontal", command=lb_left.xview)
+        hsb_right = ttk.Scrollbar(right_wrap, orient="horizontal", command=lb_right.xview)
+        lb_left.configure(xscrollcommand=hsb_left.set)
+        lb_right.configure(xscrollcommand=hsb_right.set)
+
+        # GRID simétrico
+        dl.grid_columnconfigure(0, weight=0)
+        dl.grid_columnconfigure(1, minsize=44, weight=0)  # botones
+        dl.grid_columnconfigure(2, weight=0)
+
+        left_wrap.grid(row=0, column=0, sticky="nw")
+        mid = ttk.Frame(dl, style="White.TFrame"); mid.grid(row=0, column=1, padx=6)
+        right_wrap.grid(row=0, column=2, sticky="nw")
+
+        lb_left.grid(row=0, column=0, sticky="nw")
+        hsb_left.grid(row=1, column=0, sticky="ew", pady=(2, 0))
+        lb_right.grid(row=0, column=0, sticky="nw")
+        hsb_right.grid(row=1, column=0, sticky="ew", pady=(2, 0))
+
+        # Botones blancos (no grises)
+        btn_kwargs = dict(bg=self.WHITE, activebackground=self.WHITE, relief="solid", bd=1, padx=6, pady=1, cursor="hand2")
+        tk.Button(mid, text=">>", **btn_kwargs,
+                  command=lambda: self._move_between(lb_left, lb_right)).pack(pady=(6, 6))
+        tk.Button(mid, text="<<", **btn_kwargs,
+                  command=lambda: self._move_between(lb_right, lb_left)).pack()
+
+        # Cargar valores en izquierda
+        for v in values:
+            lb_left.insert("end", v)
+
+        # Buscar
+        def on_search(*_):
+            q = entry.get().strip().lower()
+            lb_left.delete(0, "end")
+            if not q:
+                for v in values:
+                    lb_left.insert("end", v)
+            else:
+                for v in values:
+                    if q in str(v).lower():
+                        lb_left.insert("end", v)
+        entry.bind("<KeyRelease>", on_search)
+
+        # Registrar control
+        self._controls[col] = {
+            "type": "categorical",
+            "get": lambda lb=lb_right: [lb.get(i) for i in range(lb.size())],
+            "reset": lambda lbL=lb_left, lbR=lb_right, vals=values: self._reset_dual(lbL, lbR, vals)
+        }
+
+    def _build_numeric(self, parent, col):
+        # Entradas EN BLANCO por defecto
+        min_var = tk.StringVar(value="")
+        max_var = tk.StringVar(value="")
+    
+        # Contenedor blanco con grid 2 columnas iguales
+        frm = ttk.Frame(parent, style="White.TFrame")
+        # ancho del frame = ancho de la card menos padding lateral (coincide con cálculo de build)
+        frm.place(x=8, y=12, relwidth=1.0, width=-16)
+    
+        # Dos columnas iguales y expansibles
+        frm.grid_columnconfigure(0, weight=1, uniform="num")
+        frm.grid_columnconfigure(1, weight=1, uniform="num")
+    
+        # Fila 0: etiquetas
+        ttk.Label(frm, text="Min", style="White.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(frm, text="Max", style="White.TLabel").grid(row=0, column=1, sticky="w")
+    
+        # Fila 1: entradas (se expanden horizontalmente con sticky="ew")
+        e_min = ttk.Entry(frm, textvariable=min_var, style="Filt.TEntry")
+        e_max = ttk.Entry(frm, textvariable=max_var, style="Filt.TEntry")
+        e_min.grid(row=1, column=0, sticky="ew", padx=(0, 8))
+        e_max.grid(row=1, column=1, sticky="ew")
+    
+        # Fila 2: botón Limpiar (blanco)
+        tk.Button(
+            frm, text="Limpiar",
+            bg=self.WHITE, activebackground=self.WHITE,
+            relief="solid", bd=1, padx=10, pady=2, cursor="hand2",
+            command=lambda: (min_var.set(""), max_var.set(""))
+        ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(10, 0))
+    
+        self._controls[col] = {"type": "numeric", "min": min_var, "max": max_var}
+
+
+    def _build_date(self, parent, col):
+        row1 = ttk.Frame(parent, style="White.TFrame"); row1.pack(anchor="w", pady=(10, 0))
+        ttk.Label(row1, text="Desde", style="White.TLabel").pack(side="left", padx=(0, 6))
+
+        start_var = tk.StringVar()
+        if HAS_TKCAL:
+            w1 = DateEntry(row1, width=12, date_pattern="yyyy-mm-dd", textvariable=start_var,
+                           background="#d1fae5", foreground="#000", bordercolor="#10b981",
+                           headersbackground="#a7f3d0", normalbackground="#ffffff")
+        else:
+            w1 = ttk.Entry(row1, textvariable=start_var, width=12, style="Filt.TEntry")
+        w1.pack(side="left")
+
+        row2 = ttk.Frame(parent, style="White.TFrame"); row2.pack(anchor="w", pady=(8, 0))
+        ttk.Label(row2, text="Hasta", style="White.TLabel").pack(side="left", padx=(0, 6))
+
+        end_var = tk.StringVar()
+        if HAS_TKCAL:
+            w2 = DateEntry(row2, width=12, date_pattern="yyyy-mm-dd", textvariable=end_var,
+                           background="#d1fae5", foreground="#000", bordercolor="#10b981",
+                           headersbackground="#a7f3d0", normalbackground="#ffffff")
+        else:
+            w2 = ttk.Entry(row2, textvariable=end_var, width=12, style="Filt.TEntry")
+        w2.pack(side="left")
+
+        # Botón Limpiar (blanco)
+        tk.Button(parent, text="Limpiar",
+                  bg=self.WHITE, activebackground=self.WHITE,
+                  relief="solid", bd=1, padx=10, pady=2, cursor="hand2",
+                  command=lambda: (start_var.set(""), end_var.set(""))
+                  ).pack(anchor="w", pady=(10, 0))
+
+        self._controls[col] = {"type": "date", "start": start_var, "end": end_var}
+
+    # ----------------- Utils -----------------
+    @staticmethod
+    def _move_between(src: tk.Listbox, dst: tk.Listbox):
+        sel = list(src.curselection())
+        for idx in sel[::-1]:
+            dst.insert("end", src.get(idx))
+        for idx in sel[::-1]:
+            src.delete(idx)
+
+    @staticmethod
+    def _reset_dual(lb_left: tk.Listbox, lb_right: tk.Listbox, values):
+        all_right = [lb_right.get(i) for i in range(lb_right.size())]
+        for v in all_right:
+            lb_left.insert("end", v)
+        lb_right.delete(0, "end")
+        lb_left.delete(0, "end")
+        for v in values:
+            lb_left.insert("end", v)

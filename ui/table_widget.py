@@ -4,7 +4,9 @@ import tkinter as tk
 from tkinter import ttk
 import tkinter.font as tkfont
 import math
+import pandas as pd
 
+# --- Reglas de formato (igual que tu versión) ---
 _FORMAT_RULES = {
     "TXN_AMT": {"kind": "number", "decimals": 2, "thousands": True, "align": "e"},
     "STRIKE":  {"kind": "number", "decimals": 4, "thousands": False, "align": "e"},
@@ -13,20 +15,35 @@ _FORMAT_RULES = {
     "NBR_OF_TRADES": {"kind": "int", "align": "e"},
     "TRANSACTION_DATE": {"kind": "date", "align": "center"},
     "EXPIRY":          {"kind": "date", "align": "center"},
+    "DAY":          {"kind": "int", "align": "e"},
+    "WEEK":           {"kind": "int", "align": "e"},
+    "MONTH":          {"kind": "int", "align": "e"},
 }
 
+
 class TableFrame(ttk.Frame):
-    """ Treeview pro, con look de dashboard """
+    """Treeview pro con look de dashboard + paginación integrada."""
     def __init__(self, master=None):
         super().__init__(master)
+        # datos y metadatos
         self._df = None
         self._columns = []
         self._col_meta = {}
         self._sort_state = {}
+
+        # paginación (siempre activada)
+        self._page_var = tk.IntVar(value=1)
+        self._page_size_var = tk.IntVar(value=1000)
+        self._page_size_choices = (100, 500, 1000, 5000)
+        self._status_var = tk.StringVar(value="Mostrando 0–0 de 0")
+
         self._build()
 
+    # ---------------- UI ----------------
     def _build(self):
         self._style_setup()
+
+        # Tree
         self._tree = ttk.Treeview(self, show="headings", selectmode="extended")
         vsb = ttk.Scrollbar(self, orient="vertical", command=self._tree.yview)
         hsb = ttk.Scrollbar(self, orient="horizontal", command=self._tree.xview)
@@ -36,6 +53,7 @@ class TableFrame(ttk.Frame):
         vsb.grid(row=0, column=1, sticky="ns")
         hsb.grid(row=1, column=0, sticky="ew")
 
+        # layout grid
         self.grid_rowconfigure(0, weight=1)
         self.grid_columnconfigure(0, weight=1)
 
@@ -43,9 +61,40 @@ class TableFrame(ttk.Frame):
         self._tree.tag_configure("even", background="#fbfdff")
         self._tree.tag_configure("odd", background="#f2f6fb")
 
+        # bindings
         self._tree.bind("<Control-c>", self._copy_selection)
         self._tree.bind("<Command-c>", self._copy_selection)
         self._tree.bind("<Double-Button-1>", self._on_header_double_click)
+
+        # --- Barra de paginación (siempre visible) ---
+        pagebar = ttk.Frame(self)
+        pagebar.grid(row=2, column=0, columnspan=2, sticky="ew", padx=4, pady=(4, 6))
+        for c in range(10):
+            pagebar.columnconfigure(c, weight=0)
+        pagebar.columnconfigure(9, weight=1)
+
+        btn_first = ttk.Button(pagebar, text="⏮ Primera", command=self._go_first)
+        btn_prev  = ttk.Button(pagebar, text="‹ Anterior", command=self._go_prev)
+        ttk.Label(pagebar, text="Página").grid(row=0, column=2, padx=(8, 4))
+        ent_page = ttk.Entry(pagebar, textvariable=self._page_var, width=6)
+        ent_page.bind("<Return>", lambda e: self._goto_page(self._page_var.get()))
+        btn_next  = ttk.Button(pagebar, text="Siguiente ›", command=self._go_next)
+        btn_last  = ttk.Button(pagebar, text="Última ⏭", command=self._go_last)
+
+        ttk.Label(pagebar, text=" · Tamaño:").grid(row=0, column=6, padx=(12, 4))
+        cmb_size = ttk.Combobox(pagebar, values=[str(x) for x in self._page_size_choices],
+                                textvariable=self._page_size_var, state="readonly", width=6)
+        cmb_size.bind("<<ComboboxSelected>>", lambda e: self._on_change_pagesize())
+
+        lbl_status = ttk.Label(pagebar, textvariable=self._status_var, anchor="e")
+
+        btn_first.grid(row=0, column=0, padx=(0, 4))
+        btn_prev.grid(row=0, column=1, padx=(0, 8))
+        ent_page.grid(row=0, column=3, padx=(0, 8))
+        btn_next.grid(row=0, column=4, padx=(0, 4))
+        btn_last.grid(row=0, column=5, padx=(0, 12))
+        cmb_size.grid(row=0, column=7, padx=(0, 8))
+        lbl_status.grid(row=0, column=9, sticky="e")
 
     def _style_setup(self):
         st = ttk.Style(self)
@@ -53,10 +102,10 @@ class TableFrame(ttk.Frame):
             st.theme_use("clam")
         except tk.TclError:
             pass
-    
+
         base_font = ("Segoe UI", 11)
         header_font = ("Segoe UI Semibold", 11)
-    
+
         st.configure(
             "Treeview",
             background="#ffffff",
@@ -68,7 +117,7 @@ class TableFrame(ttk.Frame):
         )
         st.configure(
             "Treeview.Heading",
-            background="#1e40af",   # mismo que topbar/heading
+            background="#1e40af",
             foreground="#ffffff",
             font=header_font,
             relief="flat",
@@ -80,22 +129,26 @@ class TableFrame(ttk.Frame):
             foreground=[("selected", "#111111")],
         )
 
-
     # ---------- API ----------
     def show_dataframe(self, df):
+        """
+        Recibe un DataFrame y lo muestra paginado.
+        Mantiene compatibilidad: solo necesitas llamar a show_dataframe(df).
+        """
         if df is None:
-            return
-        self._df = df
-        self._columns = list(df.columns)
-        self._col_meta = self._detect_and_prepare_columns(df)
+            # limpia si llega None
+            self._df = pd.DataFrame()
+        else:
+            self._df = df
+
+        # preparar columnas y metadatos (una vez por df)
+        self._columns = list(self._df.columns)
+        self._col_meta = self._detect_and_prepare_columns(self._df)
         self._setup_columns()
-        self._tree.delete(*self._tree.get_children())
-        insert = self._tree.insert
-        for i, row in enumerate(df.itertuples(index=False, name=None)):
-            tags = ("even",) if (i % 2 == 0) else ("odd",)
-            values = [self._format_value(self._columns[j], row[j]) for j in range(len(self._columns))]
-            insert("", "end", values=values, tags=tags)
-        self._autosize_columns(sample_rows=min(len(df), 500))
+
+        # ir a página 1 y dibujar
+        self._page_var.set(1)
+        self._render_current_page()
 
     # ---------- setup ----------
     def _detect_and_prepare_columns(self, df):
@@ -164,32 +217,113 @@ class TableFrame(ttk.Frame):
             w = max(widths) + padding
             self._tree.column(c, width=max(min_w, min(w, max_w)))
 
-    # ---------- sort ----------
-    def _on_sort(self, col):
+    # ---------- paginación ----------
+    def _render_current_page(self):
+        """Dibuja la página actual a partir de self._df."""
+        # limpiar filas
+        self._tree.delete(*self._tree.get_children())
+
+        if self._df is None or self._df.empty:
+            # estado vacío
+            self._tree.configure(columns=("(sin datos)",))
+            self._tree.heading("(sin datos)", text="(sin datos)")
+            self._tree.column("(sin datos)", width=120, anchor="center")
+            self._status_var.set("Mostrando 0–0 de 0")
+            return
+
+        # asegura columnas correctas
+        self._tree.configure(columns=self._columns)
+        for c in self._columns:
+            self._tree.heading(c, text=c)
+
+        n = len(self._df)
+        ps = max(1, int(self._page_size_var.get()))
+        p = max(1, int(self._page_var.get()))
+        total_pages = max(1, (n + ps - 1) // ps)
+        if p > total_pages:
+            p = total_pages
+            self._page_var.set(p)
+
+        start = (p - 1) * ps
+        end = min(start + ps, n)
+
+        # inserta solo la página
+        insert = self._tree.insert
+        view_df = self._df.iloc[start:end]
+        for i, row in enumerate(view_df.itertuples(index=False, name=None)):
+            tags = ("even",) if (i % 2 == 0) else ("odd",)
+            values = [self._format_value(self._columns[j], row[j]) for j in range(len(self._columns))]
+            insert("", "end", values=values, tags=tags)
+
+        # autosize con muestras de la página
+        self._autosize_columns(sample_rows=min(len(view_df), 500))
+        self._status_var.set(f"Mostrando {start+1:,}–{end:,} de {n:,}".replace(",", " "))
+
+    def _on_change_pagesize(self):
+        self._page_var.set(1)
+        self._render_current_page()
+
+    def _goto_page(self, page: int):
+        try:
+            p = int(page)
+        except Exception:
+            p = 1
+        if p < 1:
+            p = 1
+        self._page_var.set(p)
+        self._render_current_page()
+
+    def _go_first(self):
+        self._goto_page(1)
+
+    def _go_prev(self):
+        self._goto_page(max(1, self._page_var.get() - 1))
+
+    def _go_next(self):
         if self._df is None:
+            return
+        n = len(self._df)
+        ps = max(1, int(self._page_size_var.get()))
+        total_pages = max(1, (n + ps - 1) // ps)
+        self._goto_page(min(total_pages, self._page_var.get() + 1))
+
+    def _go_last(self):
+        if self._df is None:
+            return
+        n = len(self._df)
+        ps = max(1, int(self._page_size_var.get()))
+        total_pages = max(1, (n + ps - 1) // ps)
+        self._goto_page(total_pages)
+
+    # ---------- ordenar ----------
+    def _on_sort(self, col):
+        if self._df is None or self._df.empty:
             return
         asc = self._sort_state.get(col, {}).get("ascending")
         asc = True if asc is None else (not asc)
         self._sort_state[col] = {"ascending": asc}
-        rows = [(iid, self._tree.item(iid, "values")) for iid in self._tree.get_children("")]
-        idx = self._columns.index(col)
 
-        def _key(t):
-            val = t[1][idx]
+        # ordenar df completo (para que aplique a todas las páginas)
+        try:
             kind = self._col_meta[col]["kind"]
             if kind in ("int", "number"):
-                try:
-                    return float(str(val).replace(" ", "").replace(",", ""))
-                except Exception:
-                    return math.inf
-            return str(val)
+                # intentar convertir, si falla entonces ordenar por string
+                s = pd.to_numeric(self._df[col], errors="coerce")
+                self._df = self._df.assign(__sort__=s)
+                self._df = self._df.sort_values(by="__sort__", ascending=asc, na_position="last").drop(columns="__sort__")
+            else:
+                self._df = self._df.sort_values(by=col, ascending=asc, na_position="last")
+        except Exception:
+            # fallback: ordenar por texto
+            self._df = self._df.sort_values(by=col, ascending=asc, na_position="last")
 
-        rows.sort(key=_key, reverse=(not asc))
-        for i, (iid, _) in enumerate(rows):
-            self._tree.move(iid, "", i)
-            self._tree.item(iid, tags=("even",) if i % 2 == 0 else ("odd",))
+        # actualizar encabezados (flecha en la col actual)
         for c in self._columns:
             self._set_header(c, text=c, ascending=self._sort_state.get(c, {}).get("ascending") if c == col else None)
+
+        # redibujar página 1 tras ordenar
+        self._page_var.set(1)
+        self._render_current_page()
 
     def _on_header_double_click(self, event):
         region = self._tree.identify("region", event.x, event.y)

@@ -41,13 +41,19 @@ def create_fake_transactions(n_rows=1_000):
         "NBR_OF_TRADES": np.random.randint(1, 100, size=n_rows),
         "CALL_OPTION": np.random.choice(["Call", "Put"], size=n_rows),
         "NBR_OF_UNITS": np.random.randint(10, 10000, size=n_rows),
-        "TRANSACTION_DATE": dates.strftime("%Y-%m-%d"),
+        "TRANSACTION_DATE": dates.normalize(),  
         "TXN_AMT": np.round(np.random.uniform(1_000, 1_000_000, size=n_rows), 2),
-        "EXPIRY": expiries.strftime("%Y-%m-%d"),
+        "EXPIRY": expiries.normalize(),
         "TYPE": np.random.choice(types, size=n_rows),
         "RATIO": np.round(np.random.uniform(0.01, 1.0, size=n_rows), 3),
         "STRIKE": np.round(np.random.uniform(50, 500, size=n_rows), 2)
     })
+    
+    df["DAY"]   = df["TRANSACTION_DATE"]               # ya normalizado
+    df["WEEK"]  = df["TRANSACTION_DATE"].dt.to_period("W-MON").dt.start_time
+    df["MONTH"] = df["TRANSACTION_DATE"].dt.to_period("M").dt.start_time
+    
+    print(df.columns)
 
     return df
 

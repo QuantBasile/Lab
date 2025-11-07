@@ -9,19 +9,14 @@ Created on Fri Oct 31 23:04:39 2025
 import tkinter as tk
 from tkinter import ttk
 from ui.main_window import MainWindow
-from utils.logging_config import configure_logging
 
 
 
 def run():
-    configure_logging()
     root = tk.Tk()
     root.title("Laboratorio Marktanteil – v0.1 (Tkinter)")
     root.geometry("1200x700")
     
-    
-    from tkinter import ttk
-
     PAL = {
         "page": "#ffffff",
         "topbar": "#1e40af",  "topbar_fg": "#ffffff",

@@ -1,4 +1,4 @@
-# ui/volume_sheet.py
+# ui/volume_percentage.py
 import tkinter as tk
 from tkinter import ttk
 import pandas as pd
@@ -10,15 +10,15 @@ import matplotlib.ticker as mticker
 import matplotlib.dates as mdates
 
 
-class VolumeSheet(ttk.Frame):
+class VolumePercentage(ttk.Frame):
     """
-    Dashboard de Volumen (2x2):
-      [0,0] Líneas diarias (Σ TXN_AMT) por emisor
-      [0,1] Líneas media móvil 7 días por emisor
-      [1,0] Barras semanales (Σ TXN_AMT) por emisor
-      [1,1] Barras mensuales (Σ TXN_AMT) por emisor
+    Dashboard de Volumen en Porcentaje (2x2):
+      [0,0] Líneas % diario (cada emisor / total del día * 100)
+      [0,1] Líneas % rolling 7d (media simple del % diario)
+      [1,0] Barras % semanal (cada emisor / total de la semana * 100)
+      [1,1] Barras % mensual (cada emisor / total del mes * 100)
 
-    Requiere que el DF ya tenga: DAY (date norm), WEEK (inicio de semana), MONTH (inicio de mes).
+    Requiere DAY, WEEK, MONTH ya precomputadas en el DF.
     """
 
     def __init__(self, master=None):
@@ -26,17 +26,17 @@ class VolumeSheet(ttk.Frame):
         self._df = None
 
         # Artistas por emisor
-        self._lines_day = {}     # issuer -> Line2D
-        self._lines_roll = {}    # issuer -> Line2D (7d)
-        self._bars_week = {}     # issuer -> [Rectangles]
-        self._bars_month = {}    # issuer -> [Rectangles]
+        self._lines_day = {}     # issuer -> Line2D (% diario)
+        self._lines_roll = {}    # issuer -> Line2D (% rolling 7d)
+        self._bars_week = {}     # issuer -> [Rectangles] (% semanal)
+        self._bars_month = {}    # issuer -> [Rectangles] (% mensual)
         self._issuer_vars = {}   # issuer -> tk.BooleanVar
         self._issuer_checkwidgets = {}  # issuer -> Checkbutton
 
-        # Base para calcular daily y rolling
+        # Base diaria para rolling
         self._issuers = []
-        self._full_range = None                    # DatetimeIndex diario continuo
-        self._daily_series_per_issuer = {}         # issuer -> Series index _full_range
+        self._full_range = None
+        self._daily_pct_per_issuer = {}  # issuer -> Series (% diario)
 
         self._build()
 
@@ -61,10 +61,10 @@ class VolumeSheet(ttk.Frame):
         self.fig = Figure(figsize=(12, 6.6), dpi=100)
         gs = self.fig.add_gridspec(2, 2, height_ratios=[1, 1])
 
-        self.ax_day   = self.fig.add_subplot(gs[0, 0])  # arriba izq (diario)
-        self.ax_roll  = self.fig.add_subplot(gs[0, 1])  # arriba dcha (rolling 7d)
-        self.ax_week  = self.fig.add_subplot(gs[1, 0])  # abajo izq (semanal)
-        self.ax_month = self.fig.add_subplot(gs[1, 1])  # abajo dcha (mensual)
+        self.ax_day   = self.fig.add_subplot(gs[0, 0])  # arriba izq (% diario)
+        self.ax_roll  = self.fig.add_subplot(gs[0, 1])  # arriba dcha (% rolling 7d)
+        self.ax_week  = self.fig.add_subplot(gs[1, 0])  # abajo izq (% semanal)
+        self.ax_month = self.fig.add_subplot(gs[1, 1])  # abajo dcha (% mensual)
         self.fig.subplots_adjust(left=0.07, right=0.98, wspace=0.32, hspace=0.32, bottom=0.12, top=0.94)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=right)
@@ -119,7 +119,7 @@ class VolumeSheet(ttk.Frame):
 
     # -------------- API ----------------
     def update_plot(self, df: pd.DataFrame):
-        """Recibe el DF FILTRADO (con DAY/WEEK/MONTH ya calculadas) y redibuja."""
+        """Recibe DF filtrado (con DAY/WEEK/MONTH ya precomputadas) y redibuja."""
         self._df = df
         self._draw_all()
 
@@ -132,7 +132,7 @@ class VolumeSheet(ttk.Frame):
         self._lines_roll.clear()
         self._bars_week.clear()
         self._bars_month.clear()
-        self._daily_series_per_issuer.clear()
+        self._daily_pct_per_issuer.clear()
         self._issuer_checkwidgets.clear()
         self._issuers = []
         self._full_range = None
@@ -144,21 +144,20 @@ class VolumeSheet(ttk.Frame):
             return
 
         s = self._df.copy()
-
-        # Tipos rápidos
         if "ISSUER_NAME" in s.columns:
             s["ISSUER_NAME"] = s["ISSUER_NAME"].astype("category")
 
-        # ==== Preparación común (YA tienes DAY/WEEK/MONTH en el DF) ====
-        # Issuers y rango completo de días
+        # Issuers y rango diario
         self._issuers = sorted(s["ISSUER_NAME"].unique())
         self._full_range = pd.date_range(s["DAY"].min(), s["DAY"].max(), freq="D")
 
-        # Series diarias por emisor (para rolling 7d)
+        # -------- % DIARIO POR EMISOR (base del rolling) --------
+        tot_day = s.groupby("DAY", sort=False)["TXN_AMT"].sum().reindex(self._full_range).fillna(0.0)
         for iss in self._issuers:
             si = s[s["ISSUER_NAME"] == iss]
-            daily = si.groupby("DAY", sort=False)["TXN_AMT"].sum().reindex(self._full_range).fillna(0.0)
-            self._daily_series_per_issuer[iss] = daily
+            daily_amt = si.groupby("DAY", sort=False)["TXN_AMT"].sum().reindex(self._full_range).fillna(0.0)
+            pct = np.where(tot_day.values > 0.0, (daily_amt.values / tot_day.values) * 100.0, 0.0)
+            self._daily_pct_per_issuer[iss] = pd.Series(pct, index=self._full_range)
 
         # Sidebar toggles (todos OFF)
         for w in self._issuer_checks_parent.winfo_children():
@@ -174,26 +173,24 @@ class VolumeSheet(ttk.Frame):
             self._issuer_vars[iss] = var
             self._issuer_checkwidgets[iss] = cb
 
-        # ==== [0,0] Líneas diarias ====
-        grouped_day = s.groupby(["DAY", "ISSUER_NAME"], sort=False)["TXN_AMT"].sum().reset_index().sort_values("DAY")
+        # ==== [0,0] Líneas % diario ====
         for iss in self._issuers:
-            sub = grouped_day[grouped_day["ISSUER_NAME"] == iss]
-            # Sin markers (más ligero)
-            ln, = self.ax_day.plot(sub["DAY"], sub["TXN_AMT"], linewidth=1.3, label=iss)
+            series = self._daily_pct_per_issuer[iss]
+            ln, = self.ax_day.plot(self._full_range, series.values, linewidth=1.3, label=iss)
             ln.set_visible(False)
             self._lines_day[iss] = ln
-        self._format_date_axis(self.ax_day, "Volumen por día (Σ TXN_AMT)")
+        self._format_date_axis_pct(self.ax_day, "Cuota diaria por emisor (% del total del día)")
 
-        # ==== [0,1] Líneas media móvil 7 días ====
+        # ==== [0,1] Líneas % rolling 7 días ====
         for iss in self._issuers:
-            daily = self._daily_series_per_issuer[iss]
-            roll = daily.rolling(window=7, min_periods=1).mean()
+            daily_pct = self._daily_pct_per_issuer[iss]
+            roll = pd.Series(daily_pct.values, index=self._full_range).rolling(window=7, min_periods=1).mean()
             ln, = self.ax_roll.plot(self._full_range, roll.values, linewidth=1.6, label=iss)
             ln.set_visible(False)
             self._lines_roll[iss] = ln
-        self._format_date_axis(self.ax_roll, "Media móvil 7 días (Σ TXN_AMT)")
+        self._format_date_axis_pct(self.ax_roll, "Media móvil 7 días (cuota %)")
 
-        # Colorea toggles con el color de rolling
+        # Colorea toggles con color de rolling
         for iss, ln in self._lines_roll.items():
             color = ln.get_color()
             if iss in self._issuer_checkwidgets:
@@ -202,11 +199,14 @@ class VolumeSheet(ttk.Frame):
                 except Exception:
                     pass
 
-        # ==== [1,0] Barras semanales ====
+        # ==== [1,0] Barras % semanales ====
         grouped_week = s.groupby(["WEEK", "ISSUER_NAME"], sort=False)["TXN_AMT"].sum().reset_index().sort_values("WEEK")
         pivot_w = grouped_week.pivot(index="WEEK", columns="ISSUER_NAME", values="TXN_AMT").fillna(0.0).sort_index()
         if not pivot_w.empty:
-            weeks = pivot_w.index.to_pydatetime()
+            row_sums = pivot_w.sum(axis=1).replace(0.0, np.nan)
+            pct_w = pivot_w.div(row_sums, axis=0).fillna(0.0) * 100.0
+
+            weeks = pct_w.index.to_pydatetime()
             n_weeks = len(weeks)
             n_iss = len(self._issuers)
             group_width = 0.85
@@ -214,8 +214,8 @@ class VolumeSheet(ttk.Frame):
             x = np.arange(n_weeks)
             for i, iss in enumerate(self._issuers):
                 offs = (i - (n_iss - 1) / 2.0) * bar_width
-                series = pivot_w.get(iss)
-                vals = series.values if series is not None else np.zeros(n_weeks)
+                vals = pct_w.get(iss)
+                vals = vals.values if vals is not None else np.zeros(n_weeks)
                 bars = self.ax_week.bar(x + offs, vals, width=bar_width, label=iss)
                 # color coherente con rolling
                 color = self._lines_roll.get(iss).get_color() if iss in self._lines_roll else None
@@ -228,13 +228,16 @@ class VolumeSheet(ttk.Frame):
             week_labels = [f"{d.isocalendar().year}-W{d.isocalendar().week:02d}" for d in weeks]
             self.ax_week.set_xticks(x)
             self.ax_week.set_xticklabels(week_labels, rotation=45, ha="right")
-            self._format_value_axis(self.ax_week, "Volumen por semana (Σ TXN_AMT)")
+            self._format_pct_axis(self.ax_week, "Cuota semanal por emisor (% del total semanal)")
 
-        # ==== [1,1] Barras mensuales ====
+        # ==== [1,1] Barras % mensuales ====
         grouped_month = s.groupby(["MONTH", "ISSUER_NAME"], sort=False)["TXN_AMT"].sum().reset_index().sort_values("MONTH")
         pivot_m = grouped_month.pivot(index="MONTH", columns="ISSUER_NAME", values="TXN_AMT").fillna(0.0).sort_index()
         if not pivot_m.empty:
-            months = pivot_m.index.to_pydatetime()
+            row_sums = pivot_m.sum(axis=1).replace(0.0, np.nan)
+            pct_m = pivot_m.div(row_sums, axis=0).fillna(0.0) * 100.0
+
+            months = pct_m.index.to_pydatetime()
             n_months = len(months)
             n_iss = len(self._issuers)
             group_width = 0.85
@@ -242,8 +245,8 @@ class VolumeSheet(ttk.Frame):
             x = np.arange(n_months)
             for i, iss in enumerate(self._issuers):
                 offs = (i - (n_iss - 1) / 2.0) * bar_width
-                series = pivot_m.get(iss)
-                vals = series.values if series is not None else np.zeros(n_months)
+                vals = pct_m.get(iss)
+                vals = vals.values if vals is not None else np.zeros(n_months)
                 bars = self.ax_month.bar(x + offs, vals, width=bar_width, label=iss)
                 color = self._lines_roll.get(iss).get_color() if iss in self._lines_roll else None
                 if color:
@@ -254,41 +257,39 @@ class VolumeSheet(ttk.Frame):
                 self._bars_month[iss] = list(bars)
             self.ax_month.set_xticks(x)
             self.ax_month.set_xticklabels([dt.strftime("%Y-%m") for dt in months], rotation=45, ha="right")
-            self._format_value_axis(self.ax_month, "Volumen por mes (Σ TXN_AMT)")
+            self._format_pct_axis(self.ax_month, "Cuota mensual por emisor (% del total mensual)")
 
         self.canvas.draw_idle()
 
     # ---------- helpers de formato ----------
-    def _format_date_axis(self, ax, title):
+    def _format_date_axis_pct(self, ax, title):
         locator = mdates.AutoDateLocator()
         formatter = mdates.AutoDateFormatter(locator)
         ax.xaxis.set_major_locator(locator)
         ax.xaxis.set_major_formatter(formatter)
-        ax.yaxis.set_major_formatter(mticker.StrMethodFormatter('{x:,.0f}'))
+        ax.yaxis.set_major_formatter(mticker.StrMethodFormatter('{x:,.0f}%'))
         ax.grid(True, alpha=0.3)
         ax.set_title(title)
         ax.set_xlabel(""); ax.set_ylabel("")
-        # Rotar 45° los ticks de fecha (arriba)
+        # Ticks X rotados 45°, Y en posición recta (rot 0)
         ax.tick_params(axis="x", rotation=45)
+        ax.tick_params(axis="y", rotation=0)
 
-    def _format_value_axis(self, ax, title):
-        ax.yaxis.set_major_formatter(mticker.StrMethodFormatter('{x:,.0f}'))
+    def _format_pct_axis(self, ax, title):
+        ax.yaxis.set_major_formatter(mticker.StrMethodFormatter('{x:,.0f}%'))
         ax.grid(True, axis="y", alpha=0.3)
         ax.set_title(title)
         ax.set_xlabel(""); ax.set_ylabel("")
 
     # ---- Sidebar actions ----
     def _toggle_issuer(self, issuer: str):
-        """Mostrar/ocultar un emisor en los 4 gráficos según el toggle."""
         on = bool(self._issuer_vars[issuer].get())
-        # líneas
         ln_d = self._lines_day.get(issuer)
         if ln_d is not None:
             ln_d.set_visible(on)
         ln_r = self._lines_roll.get(issuer)
         if ln_r is not None:
             ln_r.set_visible(on)
-        # barras
         for b in self._bars_week.get(issuer, []):
             b.set_visible(on)
         for b in self._bars_month.get(issuer, []):

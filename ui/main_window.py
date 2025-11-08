@@ -7,6 +7,9 @@ from ui.volume_sheet import VolumeSheet
 from ui.volume_summary import VolumeSummary
 from ui.volume_perc import VolumePercentage
 from ui.volume_table import VolumeTable
+from ui.call_put_share import CallPutShare
+from ui.call_put_rolling import CallPutRolling
+from ui.hsbc_marktanteil import HSBCMarktanteil
 import traceback
 
 
@@ -146,7 +149,23 @@ class MainWindow(tk.Frame):
         self.nb.add(tab_vtable, text="volumen_tabla")
 
 
+        tab_callput = ttk.Frame(self.nb, style="CardInner.TFrame")
+        self.call_put_share = CallPutShare(tab_callput)
+        self.call_put_share.pack(side="top", fill="both", expand=True)
+        self.nb.add(tab_callput, text="CALL/PUT share")
         
+        tab_cproll = ttk.Frame(self.nb, style="CardInner.TFrame")
+        self.call_put_rolling = CallPutRolling(tab_cproll)
+        self.call_put_rolling.pack(side="top", fill="both", expand=True)
+        self.nb.add(tab_cproll, text="CALL/PUT rolling 7d")
+        
+        tab_hsbc = ttk.Frame(self.nb)
+        self.hsbc_marktanteil = HSBCMarktanteil(tab_hsbc)
+        self.hsbc_marktanteil.pack(fill="both", expand=True)
+        self.nb.add(tab_hsbc, text="HSBC Marktanteil")
+
+
+
 
 
         # Selección por defecto en sidebar
@@ -242,6 +261,10 @@ class MainWindow(tk.Frame):
         self.volume_summary.update_view(df_full, color_resolver=color_resolver)
         self.volume_percentage.update_plot(df_full)
         self.volume_table.update_view(df_full)
+        self.call_put_share.update_plot(df_full)
+        self.call_put_rolling.update_plot(df_full)
+        self.hsbc_marktanteil.update_plot(df_full)
+
         
     def _get_split_height(self):
         """Altura útil del panedwindow para calcular mitad. Usa bbox del pane 0."""

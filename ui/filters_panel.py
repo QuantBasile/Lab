@@ -27,7 +27,7 @@ class FiltersPanel(ttk.Frame):
     # Layout
     PADX = 12
     PADY = 12
-    ROWS = 4
+    ROWS = 3
 
     # Alturas compactas por tipo
     CARD_H_CATEG = 160
@@ -59,44 +59,81 @@ class FiltersPanel(ttk.Frame):
             st.theme_use("clam")
         except tk.TclError:
             pass
-
-        # Paleta
+    
+        # Paleta principal
         self.WHITE        = "#ffffff"
         self.BORDER       = "#c7d2fe"
-        self.BLUE         = "#2563eb"   # título numéricos
-        self.GREEN        = "#059669"   # título fechas
-        self.BLACK        = "#000000"   # título categóricos
-        self.TITLE_FG     = "#ffffff"
-
-        # Todo blanco por defecto
+        self.BLUE         = "#2563eb"   # numéricos
+        self.GREEN        = "#059669"   # fechas
+        self.BLACK        = "#000000"   # categóricos
+    
+        # Fondos del título según tipo
+        self.TITLE_BG_NUM  = "#dbeafe"  # azul claro
+        self.TITLE_BG_DATE = "#d1fae5"  # verde claro
+        self.TITLE_BG_CAT  = "#e5e7eb"  # gris claro
+    
+        # Texto de título
+        self.TITLE_FG = "#000000"
+        title_font = ("Segoe UI Semibold", 11)
+    
+        # Fondo general blanco
         st.configure("FiltersBody.TFrame", background=self.WHITE)
         st.configure("White.TFrame", background=self.WHITE)
         st.configure("White.TLabel", background=self.WHITE)
-
-        # Cards base
-        st.configure("BaseCard.TLabelframe",
-                     background=self.WHITE,
-                     relief="solid",
-                     bordercolor=self.BORDER,
-                     borderwidth=1)
-        # Variantes de chip (título)
-        st.configure("NumCard.TLabelframe",  background=self.WHITE, relief="solid", bordercolor=self.BORDER, borderwidth=1)
-        st.configure("NumCard.TLabelframe.Label",
-                     background=self.BLUE, foreground=self.TITLE_FG,
-                     padding=(8, 2), font=("Segoe UI Semibold", 9))
-
-        st.configure("DateCard.TLabelframe", background=self.WHITE, relief="solid", bordercolor=self.BORDER, borderwidth=1)
-        st.configure("DateCard.TLabelframe.Label",
-                     background=self.GREEN, foreground=self.TITLE_FG,
-                     padding=(8, 2), font=("Segoe UI Semibold", 9))
-
-        st.configure("CatCard.TLabelframe",  background=self.WHITE, relief="solid", bordercolor=self.BORDER, borderwidth=1)
-        st.configure("CatCard.TLabelframe.Label",
-                     background=self.BLACK, foreground=self.TITLE_FG,
-                     padding=(8, 2), font=("Segoe UI Semibold", 9))
-
+    
+        # -------- Numéricos --------
+        st.configure(
+            "NumCard.TLabelframe",
+            background=self.WHITE,
+            relief="solid",
+            bordercolor=self.BLUE,
+            borderwidth=2,
+        )
+        st.configure(
+            "NumCard.TLabelframe.Label",
+            background=self.TITLE_BG_NUM,
+            foreground=self.TITLE_FG,
+            padding=(10, 5),
+            font=title_font,
+        )
+    
+        # -------- Fechas --------
+        st.configure(
+            "DateCard.TLabelframe",
+            background=self.WHITE,
+            relief="solid",
+            bordercolor=self.GREEN,
+            borderwidth=2,
+        )
+        st.configure(
+            "DateCard.TLabelframe.Label",
+            background=self.TITLE_BG_DATE,
+            foreground=self.TITLE_FG,
+            padding=(10, 5),
+            font=title_font,
+        )
+    
+        # -------- Categóricos --------
+        st.configure(
+            "CatCard.TLabelframe",
+            background=self.WHITE,
+            relief="solid",
+            bordercolor=self.BLACK,
+            borderwidth=2,
+        )
+        st.configure(
+            "CatCard.TLabelframe.Label",
+            background=self.TITLE_BG_CAT,
+            foreground=self.TITLE_FG,
+            padding=(10, 5),
+            font=title_font,
+        )
+    
+        # Entradas e indicadores igual que antes
         st.configure("Filt.TEntry", padding=(3, 2))
         st.configure("Hint.TLabel", foreground=self.BLUE, background=self.WHITE)
+
+
 
     # ----------------- Base: canvas + scroll -----------------
     def _build_base(self):

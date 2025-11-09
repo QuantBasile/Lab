@@ -10,29 +10,22 @@ import matplotlib.ticker as mticker
 import matplotlib.dates as mdates
 from matplotlib.lines import Line2D
 
+# 🔹 Farben pro Emittent (aus JSON)
+from utils.issuer_colors import get_issuer_color
+from pandas.api.types import is_datetime64_any_dtype
+
+
 
 class CallPutRolling(ttk.Frame):
     """
-    Pestaña: Rolling 7 días por emisor, diferenciando CALL/PUT.
+    Reiter: 7-Tage-Rolling-Volumen nach Emittent, getrennt nach CALL/PUT.
 
     Layout:
-      - Sidebar izquierda: lista de emisores con checkboxes (Todos ON / OFF)
-      - Centro: UNA figura con 1 gráfico:
-          * Volumen rolling 7d (TXN_AMT) por emisor y CALL/PUT
-          * Color = emisor
-          * linestyle = tipo de opción (CALL/PUT/otro)
-
-    Convención de estilos:
-      - Color: por emisor (constante en el gráfico)
-      - linestyle:
-          CALL / C  -> '-'
-          PUT  / P  -> '--'
-          otros     -> ':'
-
-    API:
-      update_plot(df: pd.DataFrame)
-        Requiere columnas mínimas:
-          TRANSACTION_DATE, TXN_AMT, CALL_OPTION, ISSUER_NAME
+      - Linke Sidebar: Emittentenliste mit Checkboxes (Alle AN / AUS)
+      - Mitte: eine Figur mit einem Plot:
+          * 7-Tage-Rolling (TXN_AMT) je Emittent und CALL/PUT
+          * Farbe = Emittent (global aus JSON)
+          * Linienstil = Optionstyp (CALL / PUT / andere)
     """
 
     def __init__(self, master=None):
@@ -40,53 +33,68 @@ class CallPutRolling(ttk.Frame):
         self._df = None
 
         self._issuers = []
-        self._issuer_vars = {}     # issuer -> BooleanVar
-        self._issuer_checks = {}   # issuer -> Checkbutton
-        self._issuer_colors = {}   # issuer -> color (hex)
+        self._issuer_vars = {}      # issuer -> BooleanVar
+        self._issuer_checks = {}    # issuer -> Checkbutton
+        self._issuer_colors = {}    # issuer -> Farbe (hex o.ä.)
 
-        self._full_range = None    # DatetimeIndex de días
-        self._lines_vol = {}       # (issuer, cp) -> Line2D
+        self._full_range = None     # DatetimeIndex der Tage
+        self._lines_vol = {}        # (issuer, cp) -> Line2D
 
         self._build()
 
-    # ------------- helpers de tiempo --------------
+    # ------------- Zeitspalten-Helper --------------
     def _ensure_time_cols(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Garantiza que exista DAY a partir de TRANSACTION_DATE."""
+        """Stellt sicher, dass DAY aus TRANSACTION_DATE abgeleitet ist.
+    
+        Optimizado:
+        - No copia si no hace falta.
+        - Sólo convierte a datetime si la columna no lo es.
+        """
         if df is None or df.empty:
             return df
-        s = df.copy()
-
+    
+        s = df
         if "TRANSACTION_DATE" not in s.columns:
             return s
-
-        if not pd.api.types.is_datetime64_any_dtype(s["TRANSACTION_DATE"]):
-            s["TRANSACTION_DATE"] = pd.to_datetime(s["TRANSACTION_DATE"], errors="coerce")
-
+    
+        # Convertir a datetime sólo si hace falta
+        if not is_datetime64_any_dtype(s["TRANSACTION_DATE"]):
+            s = s.copy()
+            s["TRANSACTION_DATE"] = pd.to_datetime(
+                s["TRANSACTION_DATE"], errors="coerce"
+            )
+    
         s = s.dropna(subset=["TRANSACTION_DATE"])
-
+    
+        # DAY sólo si no existe
         if "DAY" not in s.columns:
+            if not s._is_copy:
+                s = s.copy()
             s["DAY"] = s["TRANSACTION_DATE"].dt.normalize()
-
+    
         return s
+
 
     # ------------- UI build --------------
     def _build(self):
         self.columnconfigure(1, weight=1)
         self.rowconfigure(1, weight=1)
 
-        # Sidebar emisores
-        self.sidebar = tk.Frame(self, bg="#FFF4E5", bd=0, highlightthickness=0, width=140)
+        # Sidebar Emittenten
+        self.sidebar = tk.Frame(
+            self, bg="#FFF4E5", bd=0, highlightthickness=0, width=140
+        )
         self.sidebar.grid(row=1, column=0, sticky="nsw", padx=(6, 8), pady=(4, 6))
         self.sidebar.grid_propagate(False)
         self._build_sidebar()
 
-        # Contenedor central para plot
+        # Plot-Bereich
         center = tk.Frame(self, bg="white", bd=0, highlightthickness=0)
         center.grid(row=1, column=1, sticky="nsew", padx=(0, 6), pady=(4, 6))
         center.rowconfigure(1, weight=1)
         center.columnconfigure(0, weight=1)
 
-        # Figura con un solo eje
+        # Figur mit einem einzigen Achsenobjekt
         self.fig = Figure(figsize=(12, 5.8), dpi=100)
         self.ax_vol = self.fig.add_subplot(1, 1, 1)
         self.fig.subplots_adjust(left=0.06, right=0.98,
@@ -114,7 +122,7 @@ class CallPutRolling(ttk.Frame):
     def _build_sidebar(self):
         tk.Label(
             self.sidebar,
-            text="Emisores",
+            text="Emittenten",
             bg="#FFF4E5",
             fg="#7A3E00",
             font=("Segoe UI Semibold", 10),
@@ -124,43 +132,102 @@ class CallPutRolling(ttk.Frame):
         btns.pack(fill="x", padx=4, pady=(0, 4))
 
         tk.Button(
-            btns, text="Todos ON", command=self._all_on,
-            bg="white", relief="solid", bd=1, padx=4, pady=1, cursor="hand2"
+            btns,
+            text="Alle AN",
+            command=self._all_on,
+            bg="white",
+            relief="solid",
+            bd=1,
+            padx=4,
+            pady=1,
+            cursor="hand2",
         ).pack(fill="x", pady=(0, 4))
 
         tk.Button(
-            btns, text="Todos OFF", command=self._all_off,
-            bg="white", relief="solid", bd=1, padx=4, pady=1, cursor="hand2"
+            btns,
+            text="Alle AUS",
+            command=self._all_off,
+            bg="white",
+            relief="solid",
+            bd=1,
+            padx=4,
+            pady=1,
+            cursor="hand2",
         ).pack(fill="x", pady=(0, 4))
 
-        # scroll para emisores
+        # Scrollbare Emittentenliste
         list_container = tk.Frame(self.sidebar, bg="#FFF4E5")
         list_container.pack(fill="both", expand=True, padx=4, pady=(2, 6))
 
         self._issuer_canvas = tk.Canvas(
-            list_container, borderwidth=0, highlightthickness=0, bg="#FFF4E5", width=128
+            list_container,
+            borderwidth=0,
+            highlightthickness=0,
+            bg="#FFF4E5",
+            width=128,
         )
-        vsb = ttk.Scrollbar(list_container, orient="vertical", command=self._issuer_canvas.yview)
+        vsb = ttk.Scrollbar(
+            list_container, orient="vertical", command=self._issuer_canvas.yview
+        )
         self._issuer_canvas.configure(yscrollcommand=vsb.set)
         vsb.pack(side="right", fill="y")
 
         self._issuer_inner = tk.Frame(self._issuer_canvas, bg="#FFF4E5")
-        self._issuer_canvas.create_window((0, 0), window=self._issuer_inner, anchor="nw")
+        self._issuer_canvas.create_window(
+            (0, 0), window=self._issuer_inner, anchor="nw"
+        )
         self._issuer_inner.bind(
             "<Configure>",
-            lambda e: self._issuer_canvas.configure(scrollregion=self._issuer_canvas.bbox("all")),
+            lambda e: self._issuer_canvas.configure(
+                scrollregion=self._issuer_canvas.bbox("all")
+            ),
         )
         self._issuer_canvas.pack(side="left", fill="both", expand=True)
 
-    # ------------- API pública --------------
+    # ------------- API --------------
     def update_plot(self, df: pd.DataFrame):
-        """Recibe DF filtrado y redibuja la pestaña."""
+        """Nimmt gefiltertes DataFrame entgegen und zeichnet den Reiter neu."""
         self._df = df
         self._draw_all()
 
-    # ------------- drawing --------------
+    # ------------- Format-Helper --------------
+    def _format_volume_tick(self, x, pos):
+        """
+        Format für Volumen-Achse:
+          - < 1 Mio:  Standard mit Tausender-Trennzeichen (12,345)
+          - >= 1 Mio: in Mio, z.B. 1M, 1,1M, 10M
+        """
+        abs_x = abs(x)
+        if abs_x >= 1_000_000:
+            value = x / 1_000_000.0
+            if abs_x >= 10_000_000:
+                return f"{value:,.0f}M"
+            else:
+                return f"{value:,.1f}M"
+        else:
+            return f"{x:,.0f}"
+
+    def _set_dynamic_ylim(self):
+        """Passt die Y-Achse an die aktuell vorhandenen Linien an."""
+        vals = []
+        for ln in self._lines_vol.values():
+            y = ln.get_ydata()
+            if y is None:
+                continue
+            arr = np.asarray(y, dtype=float)
+            arr = arr[~np.isnan(arr)]
+            if arr.size:
+                vals.append(arr.max())
+        if not vals:
+            return
+        ymax = max(vals)
+        if ymax <= 0:
+            ymax = 1.0
+        self.ax_vol.set_ylim(0, ymax * 1.1)
+
+    # ------------- Zeichnen --------------
     def _draw_all(self):
-        # limpiar eje y estructuras
+        # Achse und Strukturen leeren
         self.ax_vol.clear()
         self._issuer_vars.clear()
         self._issuer_checks.clear()
@@ -173,7 +240,14 @@ class CallPutRolling(ttk.Frame):
             w.destroy()
 
         if self._df is None or self._df.empty:
-            self.ax_vol.text(0.5, 0.5, "No data", ha="center", va="center", transform=self.ax_vol.transAxes)
+            self.ax_vol.text(
+                0.5,
+                0.5,
+                "Keine Daten",
+                ha="center",
+                va="center",
+                transform=self.ax_vol.transAxes,
+            )
             self.canvas.draw_idle()
             return
 
@@ -181,19 +255,21 @@ class CallPutRolling(ttk.Frame):
 
         required = {"TRANSACTION_DATE", "TXN_AMT", "CALL_OPTION", "ISSUER_NAME"}
         if not required.issubset(s.columns):
-            msg = "Missing: " + ", ".join(sorted(required - set(s.columns)))
-            self.ax_vol.text(0.5, 0.5, msg, ha="center", va="center", transform=self.ax_vol.transAxes)
+            msg = "Fehlende Spalten: " + ", ".join(sorted(required - set(s.columns)))
+            self.ax_vol.text(
+                0.5, 0.5, msg, ha="center", va="center", transform=self.ax_vol.transAxes
+            )
             self.canvas.draw_idle()
             return
 
         s["CALL_OPTION"] = s["CALL_OPTION"].astype(str)
         s["ISSUER_NAME"] = s["ISSUER_NAME"].astype(str)
 
-        # Issuers & rango de días
+        # Emittenten & durchgängiger Datumsbereich
         self._issuers = sorted(s["ISSUER_NAME"].unique())
         self._full_range = pd.date_range(s["DAY"].min(), s["DAY"].max(), freq="D")
 
-        # Sidebar emisores
+        # Sidebar Emittenten
         for iss in self._issuers:
             var = tk.BooleanVar(value=False)
             cb = tk.Checkbutton(
@@ -212,13 +288,16 @@ class CallPutRolling(ttk.Frame):
             self._issuer_vars[iss] = var
             self._issuer_checks[iss] = cb
 
-        # Asignar colores por emisor usando el ciclo de la ax_vol
+        # CALL/PUT-Ausprägungen
         callput_values = sorted(s["CALL_OPTION"].unique())
 
+        # Linien generieren
         for iss in self._issuers:
-            if iss not in self._issuer_colors:
+            color = get_issuer_color(iss)
+            if color is None:
+                # Fallback, falls Emittent nicht im JSON ist
                 color = self.ax_vol._get_lines.get_next_color()
-                self._issuer_colors[iss] = color
+            self._issuer_colors[iss] = color
 
             for cp in callput_values:
                 mask = (s["ISSUER_NAME"] == iss) & (s["CALL_OPTION"] == cp)
@@ -230,51 +309,76 @@ class CallPutRolling(ttk.Frame):
                     .groupby("DAY", sort=False)["TXN_AMT"]
                     .sum()
                     .reindex(self._full_range)
-                    .fillna(0.0)
+                    .fillna(0.0)  # Tage ohne Trades => Volumen 0
                 )
 
-                # rolling 7 días (media simple)
-                roll_vol = pd.Series(daily.values, index=self._full_range).rolling(
-                    window=7, min_periods=1
-                ).mean()
+                # 7-Tage-Rolling mit 0 für fehlende Tage
+                roll_vol = (
+                    pd.Series(daily.values, index=self._full_range)
+                    .rolling(window=7, min_periods=1)
+                    .mean()
+                )
 
-                color = self._issuer_colors[iss]
+
+                color_line = self._issuer_colors[iss]
                 ls = self._linestyle_for_callput(cp)
 
                 (ln_v,) = self.ax_vol.plot(
                     self._full_range,
                     roll_vol.values,
                     linewidth=1.4,
-                    color=color,
+                    color=color_line,
                     linestyle=ls,
                     label=f"{iss} {cp}",
                 )
                 ln_v.set_visible(False)
                 self._lines_vol[(iss, cp)] = ln_v
 
-        # Formato de eje
+        # Checkboxes farblich nach Emittent einfärben
+        for iss, cb in self._issuer_checks.items():
+            color = get_issuer_color(iss, fallback=self._issuer_colors.get(iss))
+            if color:
+                try:
+                    cb.configure(
+                        fg=color,
+                        activeforeground=color,
+                        selectcolor="#FFF4E5",
+                    )
+                except Exception:
+                    pass
+
+        # Achsenformat
         self._format_vol_axis()
 
-        # Leyendas compactas: una por emisores (colores), otra por estilo (CALL/PUT)
+        # Dynamische Y-Achse
+        self._set_dynamic_ylim()
+
+        # Legenden: Emittenten (Farben) und Typen (Linienstil)
         self._build_legends(callput_values)
 
         self.canvas.draw_idle()
 
-    # ---------- formato eje ----------
+    # ---------- Achsenformat ----------
     def _format_vol_axis(self):
         locator = mdates.AutoDateLocator()
         formatter = mdates.AutoDateFormatter(locator)
         self.ax_vol.xaxis.set_major_locator(locator)
         self.ax_vol.xaxis.set_major_formatter(formatter)
-        self.ax_vol.yaxis.set_major_formatter(mticker.StrMethodFormatter('{x:,.0f}'))
+        self.ax_vol.yaxis.set_major_formatter(
+            mticker.FuncFormatter(self._format_volume_tick)
+        )
         self.ax_vol.grid(True, alpha=0.3)
-        self.ax_vol.set_title("Volumen rolling 7d por emisor y CALL/PUT")
+        self.ax_vol.set_title("7-Tage-Rolling-Volumen nach Emittent und CALL/PUT")
         self.ax_vol.set_xlabel("")
         self.ax_vol.set_ylabel("")
-        self.ax_vol.tick_params(axis="x", rotation=45)
+        self.ax_vol.tick_params(axis="x", rotation=20)
         self.ax_vol.tick_params(axis="y", rotation=0)
 
-    # ---------- estilos ----------
+        # X-Achse auf den gesamten Datenbereich setzen
+        if self._full_range is not None and len(self._full_range) > 0:
+            self.ax_vol.set_xlim(self._full_range.min(), self._full_range.max())
+
+    # ---------- Linienstile ----------
     @staticmethod
     def _linestyle_for_callput(cp_value: str) -> str:
         key = str(cp_value).upper()
@@ -282,11 +386,11 @@ class CallPutRolling(ttk.Frame):
             return "-"
         if key in ("PUT", "P"):
             return "--"
-        return ":"  # otros tipos
+        return ":"  # andere Typen
 
-    # ---------- leyendas ----------
+    # ---------- Legenden ----------
     def _build_legends(self, callput_values):
-        # Leyenda de emisores (colores)
+        # Legende für Emittenten (Farben)
         issuer_handles = []
         issuer_labels = []
         for iss in self._issuers:
@@ -297,11 +401,10 @@ class CallPutRolling(ttk.Frame):
             issuer_handles.append(h)
             issuer_labels.append(iss)
 
-        # Leyenda de estilos CALL/PUT (linestyle)
+        # Legende für Typ (CALL/PUT) – Linienstil
         style_handles = []
         style_labels = []
 
-        # Usamos un set de "tipos" normalizados (CALL, PUT, OTHER)
         types_seen = set()
         for cp in callput_values:
             key = str(cp).upper()
@@ -321,12 +424,12 @@ class CallPutRolling(ttk.Frame):
             style_handles.append(h)
             style_labels.append(normalized)
 
-        # Colocamos dos leyendas: emisores (abajo izquierda) y estilos (abajo derecha)
+        # Zwei getrennte Legenden: links Emittenten, rechts Typ
         if issuer_handles:
             leg1 = self.ax_vol.legend(
                 issuer_handles,
                 issuer_labels,
-                title="Emisores",
+                title="Emittenten",
                 loc="upper left",
                 fontsize=8,
             )
@@ -336,17 +439,19 @@ class CallPutRolling(ttk.Frame):
             self.ax_vol.legend(
                 style_handles,
                 style_labels,
-                title="Tipo",
+                title="Typ",
                 loc="upper right",
                 fontsize=8,
             )
 
-    # ---------- toggles ----------
+    # ---------- Toggles ----------
     def _toggle_issuer(self, issuer: str):
         on = bool(self._issuer_vars[issuer].get())
         for (iss, cp), ln in list(self._lines_vol.items()):
             if iss == issuer:
                 ln.set_visible(on)
+        # Y-Limits nach Sichtbarkeit neu setzen
+        self._set_dynamic_ylim()
         self.canvas.draw_idle()
 
     def _all_on(self):

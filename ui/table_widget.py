@@ -35,7 +35,7 @@ class TableFrame(ttk.Frame):
         self._page_var = tk.IntVar(value=1)
         self._page_size_var = tk.IntVar(value=1000)
         self._page_size_choices = (100, 500, 1000, 5000)
-        self._status_var = tk.StringVar(value="Mostrando 0–0 de 0")
+        self._status_var = tk.StringVar(value="Zeige 0–0 von 0")
 
         self._build()
 
@@ -73,17 +73,23 @@ class TableFrame(ttk.Frame):
             pagebar.columnconfigure(c, weight=0)
         pagebar.columnconfigure(9, weight=1)
 
-        btn_first = ttk.Button(pagebar, text="⏮ Primera", command=self._go_first)
-        btn_prev  = ttk.Button(pagebar, text="‹ Anterior", command=self._go_prev)
-        ttk.Label(pagebar, text="Página").grid(row=0, column=2, padx=(8, 4))
+        # Botones en alemán
+        btn_first = ttk.Button(pagebar, text="⏮ Erste", command=self._go_first)
+        btn_prev  = ttk.Button(pagebar, text="‹ Zurück", command=self._go_prev)
+        ttk.Label(pagebar, text="Seite").grid(row=0, column=2, padx=(8, 4))
         ent_page = ttk.Entry(pagebar, textvariable=self._page_var, width=6)
         ent_page.bind("<Return>", lambda e: self._goto_page(self._page_var.get()))
-        btn_next  = ttk.Button(pagebar, text="Siguiente ›", command=self._go_next)
-        btn_last  = ttk.Button(pagebar, text="Última ⏭", command=self._go_last)
+        btn_next  = ttk.Button(pagebar, text="Weiter ›", command=self._go_next)
+        btn_last  = ttk.Button(pagebar, text="Letzte ⏭", command=self._go_last)
 
-        ttk.Label(pagebar, text=" · Tamaño:").grid(row=0, column=6, padx=(12, 4))
-        cmb_size = ttk.Combobox(pagebar, values=[str(x) for x in self._page_size_choices],
-                                textvariable=self._page_size_var, state="readonly", width=6)
+        ttk.Label(pagebar, text=" · Seitengröße:").grid(row=0, column=6, padx=(12, 4))
+        cmb_size = ttk.Combobox(
+            pagebar,
+            values=[str(x) for x in self._page_size_choices],
+            textvariable=self._page_size_var,
+            state="readonly",
+            width=6,
+        )
         cmb_size.bind("<<ComboboxSelected>>", lambda e: self._on_change_pagesize())
 
         lbl_status = ttk.Label(pagebar, textvariable=self._status_var, anchor="e")
@@ -225,10 +231,10 @@ class TableFrame(ttk.Frame):
 
         if self._df is None or self._df.empty:
             # estado vacío
-            self._tree.configure(columns=("(sin datos)",))
-            self._tree.heading("(sin datos)", text="(sin datos)")
-            self._tree.column("(sin datos)", width=120, anchor="center")
-            self._status_var.set("Mostrando 0–0 de 0")
+            self._tree.configure(columns=("(keine Daten)",))
+            self._tree.heading("(keine Daten)", text="(keine Daten)")
+            self._tree.column("(keine Daten)", width=120, anchor="center")
+            self._status_var.set("Zeige 0–0 von 0")
             return
 
         # asegura columnas correctas
@@ -257,7 +263,9 @@ class TableFrame(ttk.Frame):
 
         # autosize con muestras de la página
         self._autosize_columns(sample_rows=min(len(view_df), 500))
-        self._status_var.set(f"Mostrando {start+1:,}–{end:,} de {n:,}".replace(",", " "))
+        self._status_var.set(
+            f"Zeige {start+1:,}–{end:,} von {n:,}".replace(",", " ")
+        )
 
     def _on_change_pagesize(self):
         self._page_var.set(1)
@@ -310,16 +318,28 @@ class TableFrame(ttk.Frame):
                 # intentar convertir, si falla entonces ordenar por string
                 s = pd.to_numeric(self._df[col], errors="coerce")
                 self._df = self._df.assign(__sort__=s)
-                self._df = self._df.sort_values(by="__sort__", ascending=asc, na_position="last").drop(columns="__sort__")
+                self._df = (
+                    self._df.sort_values(
+                        by="__sort__", ascending=asc, na_position="last"
+                    ).drop(columns="__sort__")
+                )
             else:
-                self._df = self._df.sort_values(by=col, ascending=asc, na_position="last")
+                self._df = self._df.sort_values(
+                    by=col, ascending=asc, na_position="last"
+                )
         except Exception:
             # fallback: ordenar por texto
             self._df = self._df.sort_values(by=col, ascending=asc, na_position="last")
 
         # actualizar encabezados (flecha en la col actual)
         for c in self._columns:
-            self._set_header(c, text=c, ascending=self._sort_state.get(c, {}).get("ascending") if c == col else None)
+            self._set_header(
+                c,
+                text=c,
+                ascending=self._sort_state.get(c, {}).get("ascending")
+                if c == col
+                else None,
+            )
 
         # redibujar página 1 tras ordenar
         self._page_var.set(1)

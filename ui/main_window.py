@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
+from tkcalendar import DateEntry    
 from services.data_service import DataService
 from ui.filters_panel import FiltersPanel
 from ui.table_widget import TableFrame
@@ -11,6 +12,7 @@ from ui.call_put_share import CallPutShare
 from ui.call_put_rolling import CallPutRolling
 from ui.hsbc_marktanteil import HSBCMarktanteil
 import traceback
+from datetime import date, timedelta  
 
 
 class MainWindow(tk.Frame):
@@ -27,29 +29,13 @@ class MainWindow(tk.Frame):
         topbar.pack(side="top", fill="x")
         ttk.Label(topbar, text="Marktanteil Dashboard", style="Topbar.TLabel").pack(side="left", padx=12, pady=10)
 
-        # ======== Shell con sidebar + content ========
+        # ======== Shell sin sidebar ========
         shell = ttk.Frame(self, style="Card.TFrame")
         shell.pack(side="top", fill="both", expand=True, padx=12, pady=12)
-
-        # donde creas el sidebar:
-        sidebar = ttk.Frame(shell, style="Sidebar.TFrame", width=220)
-        sidebar.pack(side="left", fill="y"); sidebar.pack_propagate(False)
         
-        # cabecera de navegación (reemplaza el Label actual):
-        ttk.Label(sidebar, text="Navigation", style="SidebarHeader.TLabel"
-                 ).pack(anchor="w", padx=12, pady=(12, 6))
-
-        self.btn_nav_table = ttk.Button(sidebar, text="📄  Table", style="Nav.TButton",
-                                        command=lambda: self._nav_select(0))
-        self.btn_nav_table.pack(fill="x", padx=12, pady=4)
-
-        self.btn_nav_volume = ttk.Button(sidebar, text="📈  Volume (Σ TXN_AMT)", style="Nav.TButton",
-                                         command=lambda: self._nav_select(1))
-        self.btn_nav_volume.pack(fill="x", padx=12, pady=4)
-
-        # --- Content (todo lo demás aquí) ---
+        # --- Content (ocupa todo el espacio) ---
         content = ttk.Frame(shell, style="Card.TFrame")
-        content.pack(side="left", fill="both", expand=True, padx=(12, 0))
+        content.pack(side="left", fill="both", expand=True)
 
         inner = ttk.Frame(content, style="CardInner.TFrame")
         inner.pack(fill="both", expand=True)
@@ -57,22 +43,71 @@ class MainWindow(tk.Frame):
         
         
 
-        # === Actions Row: todo en una sola línea (tk.Button con color real) ===
+        # === Actions Row: fechas + tipo de producto ===
         actions = ttk.Frame(inner, style="Actions.TFrame")
         actions.pack(side="top", fill="x", padx=10, pady=8)
         
-        ttk.Label(actions, text="Filas a generar:").pack(side="left")
-        self.rows_var = tk.IntVar(value=1_000_000)
-        self.rows_spin = ttk.Spinbox(actions, from_=10, to=5_000_000, increment=50_000,
-                                     textvariable=self.rows_var, width=10)
-        self.rows_spin.pack(side="left", padx=(6, 12))
-        
-        self.btn_generate = tk.Button(
-            actions, text="Generar datos (3 meses)",
-            bg="#2563eb", fg="white", activebackground="#1d4ed8",
-            relief="flat", padx=12, pady=6, command=self.on_generate, cursor="hand2"
+        # Fechas con tkcalendar (Von / Bis)
+        ttk.Label(actions, text="Von:").pack(side="left")
+        self.von_var = tk.StringVar()
+        self.von_date = DateEntry(
+            actions,
+            textvariable=self.von_var,
+            date_pattern="yyyy-mm-dd",
+            width=12,
         )
-        self.btn_generate.pack(side="left", padx=(0, 12))
+        self.von_date.pack(side="left", padx=(4, 10))
+        
+        ttk.Label(actions, text="Bis:").pack(side="left")
+        self.bis_var = tk.StringVar()
+        self.bis_date = DateEntry(
+            actions,
+            textvariable=self.bis_var,
+            date_pattern="yyyy-mm-dd",
+            width=12,
+        )
+        self.bis_date.pack(side="left", padx=(4, 16))
+        
+        # Valores por defecto: últimos 90 días
+        today = date.today()
+        self.bis_date.set_date(today)
+        self.von_date.set_date(today - timedelta(days=90))
+        
+        # Botones de generación (input) en lila claro
+        btn_input_kwargs = dict(
+            bg="#e9d5ff",
+            fg="#000000",
+            activebackground="#ddd6fe",
+            relief="flat",
+            padx=10,
+            pady=5,
+            cursor="hand2",
+        )
+        
+        self.btn_alle = tk.Button(
+            actions,
+            text="Alle",
+            command=lambda: self.on_generate("ALLE"),
+            **btn_input_kwargs,
+        )
+        self.btn_alle.pack(side="left", padx=(0, 6))
+        
+        self.btn_turbo = tk.Button(
+            actions,
+            text="Turbo",
+            command=lambda: self.on_generate("TURBO"),
+            **btn_input_kwargs,
+        )
+        self.btn_turbo.pack(side="left", padx=(0, 6))
+        
+        self.btn_vanilla = tk.Button(
+            actions,
+            text="Vanilla",
+            command=lambda: self.on_generate("VANILLA"),
+            **btn_input_kwargs,
+        )
+        self.btn_vanilla.pack(side="left", padx=(0, 12))
+
         
         self.btn_toggle_filters = tk.Button(
             actions, text="Ocultar filtros ▲",
@@ -166,26 +201,6 @@ class MainWindow(tk.Frame):
 
 
 
-
-
-        # Selección por defecto en sidebar
-        self._nav_set_active(self.btn_nav_table)
-
-    # ====== Sidebar helpers ======
-    def _nav_select(self, index: int):
-        self.nb.select(index)
-        if index == 0:
-            self._nav_set_active(self.btn_nav_table)
-        else:
-            self._nav_set_active(self.btn_nav_volume)
-
-    def _nav_set_active(self, btn_active):
-        # Reset look
-        for b in (self.btn_nav_table, self.btn_nav_volume):
-            b.configure(style="Nav.TButton")
-        # Emular activo: color de fondo suave
-        btn_active.configure(style="Nav.TButton")
-
     # ====== Filtros toggle ======
     def _show_filters(self):
         # si ya está presente, nada
@@ -216,24 +231,55 @@ class MainWindow(tk.Frame):
 
 
     # ====== Lógica ======
-    def on_generate(self):
-            n_rows = int(self.rows_var.get())
-            self.btn_generate.config(state="disabled")
-            self.update_idletasks()
-            try:
-                df = self.service.generate_fake_transactions(n_rows=n_rows)
-            except Exception:
-                traceback.print_exc()
-                messagebox.showerror("Error", "No se pudieron generar los datos.")
-                return
-            finally:
-                self.btn_generate.config(state="normal")
-        
-            self.filters_panel.build(df)
-            self._show_filters()
-            self.btn_apply.config(state="normal")
-            self.btn_clear.config(state="normal")
-            self._refresh_views()
+    def on_generate(self, produktart):
+        """Genera datos usando las fechas seleccionadas y el tipo de producto."""
+        von = (self.von_var.get() or "").strip() or None
+        bis = (self.bis_var.get() or "").strip() or None
+
+        # Desactivar botones de entrada mientras se genera
+        for btn in (self.btn_alle, self.btn_turbo, self.btn_vanilla):
+            btn.config(state="disabled")
+        self.update_idletasks()
+
+        try:
+            df = self.service.generate_fake_transactions(
+                von=von,
+                bis=bis,
+                produktart=produktart,
+                n_rows=1_000_000,   # ajusta si quieres menos filas
+            )
+        except Exception:
+            traceback.print_exc()
+            messagebox.showerror("Fehler", "Die Daten konnten nicht generiert werden.")
+            return
+        finally:
+            for btn in (self.btn_alle, self.btn_turbo, self.btn_vanilla):
+                btn.config(state="normal")
+
+        # Reconstruir filtros y refrescar todas las vistas
+        self.filters_panel.build(df)
+        self._show_filters()
+    
+        # Activar botones
+        self.btn_apply.config(state="normal")
+        self.btn_clear.config(state="normal")
+    
+        # 🔹 Simular clic automático en el botón "Borrar filtros"
+        try:
+            # Si el botón tiene asignado un comando (normalmente _on_clear_clicked)
+            if hasattr(self.btn_clear, "invoke"):
+                self.btn_clear.invoke()  # esto ejecuta el mismo callback del botón
+            else:
+                # Fallback si no existe invoke (raro)
+                if hasattr(self.filters_panel, "_on_clear_clicked"):
+                    self.filters_panel._on_clear_clicked()
+        except Exception as e:
+            print(f"[on_generate] Error al ejecutar auto-clear: {e}")
+    
+        # 🔹 Finalmente refrescar la vista principal
+        self._refresh_views()
+
+
 
 
     def on_apply_filters(self):
@@ -257,8 +303,7 @@ class MainWindow(tk.Frame):
 
         df_full = self.service.dataframe_filtered
         self.volume_sheet.update_plot(df_full)
-        color_resolver = getattr(self.volume_sheet, "get_issuer_color", None)
-        self.volume_summary.update_view(df_full, color_resolver=color_resolver)
+        self.volume_summary.update_view(df_full)
         self.volume_percentage.update_plot(df_full)
         self.volume_table.update_view(df_full)
         self.call_put_share.update_plot(df_full)

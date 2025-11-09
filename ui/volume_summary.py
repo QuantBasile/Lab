@@ -8,95 +8,122 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 import matplotlib.ticker as mticker
 
+# 🔹 Colores globales por Emittent
+from utils.issuer_colors import get_issuer_color
+
 
 class VolumeSummary(ttk.Frame):
     """
-    Pestaña 'Volumen-summary' (1 fila, 2 columnas):
-      [0,0] Histograma (Σ TXN_AMT por emisor) con anotaciones
-      [0,1] Pie chart (Top-N, resto 'Others')
+    Pestaña 'Volumen-Übersicht' (1 Zeile, 2 Spalten):
+
+      [0,0] Histogramm (Σ TXN_AMT nach Emittent, gestapelt nach UND_TYPE falls vorhanden)
+             – über jeder Säule: Gesamtvolumen
+             – in jedem Segment: Anteil dieses UND_TYPE am Emittenten-Volumen (%)
+
+      [0,1] Histogramm (Marktanteil in % nach Emittent)
 
     API:
-      update_view(df, color_resolver=None)
-        df: DataFrame filtrado.
-        color_resolver: callable opcional issuer -> color (para mantener coherencia).
+      update_view(df)
+        df: gefiltertes DataFrame.
     """
-
-    TOP_N_PIE = 8
 
     def __init__(self, master=None):
         super().__init__(master)
         self._df = None
-        self._color_resolver = None
         self._build()
 
     # ---------- UI ----------
     def _build(self):
-        # Grid: 1 fila x 2 columnas
+        # Grid: 1 Zeile x 2 Spalten
         self.rowconfigure(0, weight=1)
-        self.columnconfigure(0, weight=1)  # hist
-        self.columnconfigure(1, weight=1)  # pie
+        self.columnconfigure(0, weight=1)  # linkes Histogramm
+        self.columnconfigure(1, weight=1)  # rechtes Histogramm
 
-        # ===== Histograma (col 0) =====
-        hist_wrap = tk.Frame(self, bg="white", bd=0, highlightthickness=0)
-        hist_wrap.grid(row=0, column=0, sticky="nsew", padx=(10, 6), pady=10)
-        hist_wrap.rowconfigure(1, weight=1)
-        hist_wrap.columnconfigure(0, weight=1)
+        # ===== Linkes Histogramm (gestapelt) =====
+        left_wrap = tk.Frame(self, bg="white", bd=0, highlightthickness=0)
+        left_wrap.grid(row=0, column=0, sticky="nsew", padx=(10, 6), pady=10)
+        left_wrap.rowconfigure(1, weight=1)
+        left_wrap.columnconfigure(0, weight=1)
 
-        self.fig_hist = Figure(figsize=(6, 4.2), dpi=100)
-        self.ax_hist = self.fig_hist.add_subplot(111)
-        self.fig_hist.subplots_adjust(left=0.08, right=0.98, top=0.9, bottom=0.30)
+        self.fig_left = Figure(figsize=(6, 4.2), dpi=100)
+        self.ax_left = self.fig_left.add_subplot(111)
+        self.fig_left.subplots_adjust(left=0.08, right=0.98, top=0.9, bottom=0.30)
 
-        self.canvas_hist = FigureCanvasTkAgg(self.fig_hist, master=hist_wrap)
-        self.canvas_hist.get_tk_widget().configure(bg="white", highlightthickness=0)
-        self.canvas_hist.get_tk_widget().grid(row=1, column=0, sticky="nsew")
+        self.canvas_left = FigureCanvasTkAgg(self.fig_left, master=left_wrap)
+        self.canvas_left.get_tk_widget().configure(bg="white", highlightthickness=0)
+        self.canvas_left.get_tk_widget().grid(row=1, column=0, sticky="nsew")
 
-        self.toolbar_hist = NavigationToolbar2Tk(self.canvas_hist, hist_wrap, pack_toolbar=False)
-        self.toolbar_hist.update()
-        self.toolbar_hist.grid(row=0, column=0, sticky="w", pady=(0, 6))
+        self.toolbar_left = NavigationToolbar2Tk(self.canvas_left, left_wrap, pack_toolbar=False)
+        self.toolbar_left.update()
+        self.toolbar_left.grid(row=0, column=0, sticky="w", pady=(0, 6))
         try:
-            self.toolbar_hist.configure(background="white")
-            for w in self.toolbar_hist.winfo_children():
-                try: w.configure(background="white")
-                except Exception: pass
+            self.toolbar_left.configure(background="white")
+            for w in self.toolbar_left.winfo_children():
+                try:
+                    w.configure(background="white")
+                except Exception:
+                    pass
         except Exception:
             pass
 
-        # ===== Pie chart (col 1) =====
-        pie_wrap = tk.Frame(self, bg="white", bd=0, highlightthickness=0)
-        pie_wrap.grid(row=0, column=1, sticky="nsew", padx=(6, 10), pady=10)
-        pie_wrap.rowconfigure(1, weight=1)
-        pie_wrap.columnconfigure(0, weight=1)
+        # ===== Rechtes Histogramm (Marktanteil %) =====
+        right_wrap = tk.Frame(self, bg="white", bd=0, highlightthickness=0)
+        right_wrap.grid(row=0, column=1, sticky="nsew", padx=(6, 10), pady=10)
+        right_wrap.rowconfigure(1, weight=1)
+        right_wrap.columnconfigure(0, weight=1)
 
-        self.fig_pie = Figure(figsize=(6, 4.2), dpi=100)
-        self.ax_pie = self.fig_pie.add_subplot(111)
-        self.fig_pie.subplots_adjust(left=0.05, right=0.95, top=0.92, bottom=0.05)
+        self.fig_right = Figure(figsize=(6, 4.2), dpi=100)
+        self.ax_right = self.fig_right.add_subplot(111)
+        self.fig_right.subplots_adjust(left=0.08, right=0.98, top=0.9, bottom=0.30)
 
-        self.canvas_pie = FigureCanvasTkAgg(self.fig_pie, master=pie_wrap)
-        self.canvas_pie.get_tk_widget().configure(bg="white", highlightthickness=0)
-        self.canvas_pie.get_tk_widget().grid(row=1, column=0, sticky="nsew")
+        self.canvas_right = FigureCanvasTkAgg(self.fig_right, master=right_wrap)
+        self.canvas_right.get_tk_widget().configure(bg="white", highlightthickness=0)
+        self.canvas_right.get_tk_widget().grid(row=1, column=0, sticky="nsew")
 
-        self.toolbar_pie = NavigationToolbar2Tk(self.canvas_pie, pie_wrap, pack_toolbar=False)
-        self.toolbar_pie.update()
-        self.toolbar_pie.grid(row=0, column=0, sticky="w", pady=(0, 6))
+        self.toolbar_right = NavigationToolbar2Tk(self.canvas_right, right_wrap, pack_toolbar=False)
+        self.toolbar_right.update()
+        self.toolbar_right.grid(row=0, column=0, sticky="w", pady=(0, 6))
         try:
-            self.toolbar_pie.configure(background="white")
-            for w in self.toolbar_pie.winfo_children():
-                try: w.configure(background="white")
-                except Exception: pass
+            self.toolbar_right.configure(background="white")
+            for w in self.toolbar_right.winfo_children():
+                try:
+                    w.configure(background="white")
+                except Exception:
+                    pass
         except Exception:
             pass
 
     # ---------- API ----------
-    def update_view(self, df: pd.DataFrame, color_resolver=None):
+    def update_view(self, df: pd.DataFrame):
         self._df = df
-        self._color_resolver = color_resolver
         self._draw()
+
+    # ---------- Helpers de formato ----------
+    def _format_volume_tick(self, x, pos):
+        """
+        Formato dinámico del eje Y (Volumen):
+          - < 1 Mio: estándar con miles: 12,345
+          - >= 1 Mio: abreviado en M, p.ej. 1.1M, 2M, 10M
+        """
+        abs_x = abs(x)
+        if abs_x >= 1_000_000:
+            value = x / 1_000_000.0
+            if abs_x >= 10_000_000:
+                return f"{value:,.0f}M"
+            else:
+                return f"{value:,.1f}M"
+        else:
+            return f"{x:,.0f}"
+
+    def _format_pct_tick(self, x, pos):
+        """Formato para ejes de porcentaje."""
+        return f"{x:.0f} %"
 
     # ---------- Drawing ----------
     def _draw(self):
         # Limpiar
-        self.ax_hist.clear()
-        self.ax_pie.clear()
+        self.ax_left.clear()
+        self.ax_right.clear()
 
         # Data checks
         if self._df is None or self._df.empty:
@@ -105,92 +132,188 @@ class VolumeSummary(ttk.Frame):
 
         s = self._df
         if "ISSUER_NAME" not in s.columns or "TXN_AMT" not in s.columns:
-            self._draw_empty(msg="Missing columns")
+            self._draw_empty(msg="Spalten fehlen")
             return
 
         # Totales por emisor, orden desc
-        grp = s.groupby("ISSUER_NAME", dropna=False)["TXN_AMT"].sum().sort_values(ascending=False)
+        grp = (
+            s.groupby("ISSUER_NAME", dropna=False, observed=False)["TXN_AMT"]
+            .sum()
+            .sort_values(ascending=False)
+        )
         emitters = grp.index.tolist()
         totals = grp.values.astype(float)
         total_all = float(s["TXN_AMT"].sum())
-        denom = total_all if total_all != 0.0 else 1.0
+        denom_all = total_all if total_all != 0.0 else 1.0
 
-        # ===== Histograma =====
         x = np.arange(len(emitters))
-        bars = self.ax_hist.bar(x, totals)
 
-        # Colores coherentes
-        if callable(self._color_resolver):
-            for i, iss in enumerate(emitters):
-                try:
-                    c = self._color_resolver(iss)
-                    if c:
-                        bars[i].set_color(c)
-                        bars[i].set_alpha(0.9)
-                except Exception:
-                    pass
+        # ===================== LINKES HISTOGRAMM =====================
+        has_und_type = "UND_TYPE" in s.columns
 
-        # Ejes, formato y título
-        self.ax_hist.set_xticks(x)
-        self.ax_hist.set_xticklabels(emitters, rotation=30, ha="right")
-        self.ax_hist.yaxis.set_major_formatter(mticker.StrMethodFormatter("{x:,.0f}"))
-        self.ax_hist.grid(True, axis="y", alpha=0.3)
-        self.ax_hist.set_title("Volumen total por emisor (Σ TXN_AMT)")
-        self.ax_hist.set_xlabel(""); self.ax_hist.set_ylabel("")
+        if has_und_type:
+            # tabla Emittent x UND_TYPE (Volumen)
+            pivot = (
+                s.groupby(["ISSUER_NAME", "UND_TYPE"], dropna=False, observed=False)["TXN_AMT"]
+                .sum()
+                .unstack(fill_value=0.0)
+            )
+            pivot = pivot.reindex(index=emitters)
 
-        # Anotaciones encima de cada barra
-        ymax = 0.0
-        for rect, v in zip(bars, totals):
-            height = rect.get_height()
-            ymax = max(ymax, height)
-            if height <= 0:
-                continue
-            txt = f"{v:,.0f}".replace(",", " ")
-            self.ax_hist.text(rect.get_x() + rect.get_width()/2, height,
-                              txt, ha="center", va="bottom", fontsize=9, rotation=0, clip_on=True)
-        if ymax > 0:
-            self.ax_hist.set_ylim(0, ymax * 1.12)
+            und_types = list(pivot.columns)
+            bottom = np.zeros(len(emitters), dtype=float)
 
-        self.fig_hist.tight_layout()
-        self.canvas_hist.draw_idle()
+            # paleta simple para UND_TYPE
+            base_colors = [
+                "#2563eb",  # blau
+                "#059669",  # grün
+                "#f97316",  # orange
+                "#7c3aed",  # violett
+                "#e11d48",  # rot
+            ]
+            color_map = {
+                ut: base_colors[i % len(base_colors)]
+                for i, ut in enumerate(und_types)
+            }
 
-        # ===== Pie chart =====
-        if len(emitters) > self.TOP_N_PIE:
-            top_emitters = emitters[:self.TOP_N_PIE]
-            top_vals = totals[:self.TOP_N_PIE]
-            others_val = float(totals[self.TOP_N_PIE:].sum())
-            labels = top_emitters + (["Others"] if others_val > 0 else [])
-            sizes = top_vals.tolist() + ([others_val] if others_val > 0 else [])
+            # Para etiquetas de % dentro de las barras necesitamos los totales por Emittent
+            totals_per_issuer = pivot.sum(axis=1).values  # misma orden que emitters
+
+            for ut in und_types:
+                vals = pivot[ut].values.astype(float)
+                bars = self.ax_left.bar(
+                    x,
+                    vals,
+                    bottom=bottom,
+                    label=str(ut),
+                    color=color_map.get(ut),
+                    alpha=0.9,
+                )
+
+                # Porcentaje dentro de la barra (segmento vs total Emittent)
+                for i, b in enumerate(bars):
+                    h = b.get_height()
+                    total_iss = totals_per_issuer[i]
+                    if h <= 0 or total_iss <= 0:
+                        continue
+                    pct = (h / total_iss) * 100.0
+                    # texto centrado en el segmento
+                    bx = b.get_x() + b.get_width() / 2.0
+                    by = b.get_y() + h / 2.0
+                    self.ax_left.text(
+                        bx,
+                        by,
+                        f"{pct:.1f}%",
+                        ha="center",
+                        va="center",
+                        fontsize=8,
+                        color="white" if pct > 10 else "black",
+                    )
+
+                bottom += vals
+
+            self.ax_left.legend(title="UND_TYPE", fontsize=8, title_fontsize=9)
+            ymax_left = bottom.max() if bottom.size > 0 else 0.0
         else:
-            labels = emitters
-            sizes = totals.tolist()
+            # Fallback: no hay UND_TYPE -> barras simples con color por Emittent
+            bars_left = self.ax_left.bar(x, totals)
+            for i, iss in enumerate(emitters):
+                color = get_issuer_color(iss)
+                if color:
+                    bars_left[i].set_color(color)
+                    bars_left[i].set_alpha(0.9)
+            ymax_left = totals.max() if totals.size > 0 else 0.0
+            # En este caso no hay % por UND_TYPE dentro de barras
 
-        # Paleta coherente; 'Others' sin resolver
-        colors = []
-        for lab in labels:
-            if lab == "Others" or not callable(self._color_resolver):
-                colors.append(None)
-            else:
-                try:
-                    colors.append(self._color_resolver(lab))
-                except Exception:
-                    colors.append(None)
+        # Etiqueta con el volumen total encima de cada barra (usar bottom final si stacked, si no totals)
+        volumes_for_label = bottom if has_und_type else totals
+        for i, vol in enumerate(volumes_for_label):
+            if vol <= 0:
+                continue
+            bx = x[i]
+            # usar el mismo formateo de volumen
+            txt = self._format_volume_tick(vol, None)
+            self.ax_left.text(
+                bx,
+                vol,
+                txt,
+                ha="center",
+                va="bottom",
+                fontsize=9,
+                rotation=0,
+                clip_on=True,
+            )
 
-        self.ax_pie.pie(
-            sizes,
-            labels=labels,
-            autopct=(lambda p: f"{p:.1f}%"),
-            startangle=90,
-            colors=colors if any(colors) else None
+        # Ejes, formato y título del izquierdo
+        self.ax_left.set_xticks(x)
+        self.ax_left.set_xticklabels(emitters, rotation=20, ha="right")
+        self.ax_left.yaxis.set_major_formatter(
+            mticker.FuncFormatter(self._format_volume_tick)
         )
-        self.ax_pie.axis("equal")
-        self.ax_pie.set_title("Participación de volumen (Top-N)")
-        self.canvas_pie.draw_idle()
+        self.ax_left.grid(True, axis="y", alpha=0.3)
+        if has_und_type:
+            self.ax_left.set_title("Volumen nach Emittent und Basiswerttyp (Σ TXN_AMT)")
+        else:
+            self.ax_left.set_title("Volumen nach Emittent (Σ TXN_AMT)")
+        self.ax_left.set_xlabel("")
+        self.ax_left.set_ylabel("")
+        if ymax_left > 0:
+            self.ax_left.set_ylim(0, ymax_left * 1.12)
+
+        self.fig_left.tight_layout()
+        self.canvas_left.draw_idle()
+
+        # ===================== RECHTES HISTOGRAMM (Marktanteil %) =====================
+        share_pct = (totals / denom_all) * 100.0  # Marktanteil pro Emittent
+
+        bars_right = self.ax_right.bar(x, share_pct)
+
+        # Colores por Emittent
+        for i, iss in enumerate(emitters):
+            color = get_issuer_color(iss)
+            if color:
+                bars_right[i].set_color(color)
+                bars_right[i].set_alpha(0.9)
+
+        # Etiqueta de porcentaje encima de cada barra
+        ymax_right = 0.0
+        for b, pct in zip(bars_right, share_pct):
+            h = b.get_height()
+            ymax_right = max(ymax_right, h)
+            bx = b.get_x() + b.get_width() / 2.0
+            if h <= 0:
+                continue
+            self.ax_right.text(
+                bx,
+                h,
+                f"{pct:.1f}%",
+                ha="center",
+                va="bottom",
+                fontsize=9,
+                rotation=0,
+                clip_on=True,
+            )
+
+        # Ejes, formato y título del derecho
+        self.ax_right.set_xticks(x)
+        self.ax_right.set_xticklabels(emitters, rotation=20, ha="right")
+        self.ax_right.yaxis.set_major_formatter(
+            mticker.FuncFormatter(self._format_pct_tick)
+        )
+        self.ax_right.grid(True, axis="y", alpha=0.3)
+        self.ax_right.set_title("Marktanteil nach Emittent (Volumen %)")
+        self.ax_right.set_xlabel("")
+        self.ax_right.set_ylabel("")
+        if ymax_right > 0:
+            self.ax_right.set_ylim(0, ymax_right * 1.12)
+
+        self.fig_right.tight_layout()
+        self.canvas_right.draw_idle()
 
     # ---------- Helpers ----------
-    def _draw_empty(self, msg="No data"):
-        for ax in (self.ax_hist, self.ax_pie):
+    def _draw_empty(self, msg="Keine Daten"):
+        for ax in (self.ax_left, self.ax_right):
             ax.clear()
             ax.text(0.5, 0.5, msg, ha="center", va="center", transform=ax.transAxes)
-        self.canvas_hist.draw()
-        self.canvas_pie.draw()
+        self.canvas_left.draw()
+        self.canvas_right.draw()

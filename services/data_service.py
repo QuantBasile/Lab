@@ -1,237 +1,202 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import numpy as np
 import pandas as pd
-from pandas.api.types import (
-    is_numeric_dtype,
-    is_datetime64_any_dtype,
-    is_bool_dtype,
-)
-from Datos import create_fake_transactions   # o desde data.fake_generator
-
+from Datos import create_fake_transactions  # usa tu Datos.py
 
 class DataService:
     """
-    Servicio de datos para la app.
+    Servicio de datos con precarga y filtros vectorizados (NumPy).
 
-    - generate_fake_transactions(...)  -> genera y PREPROCESA el DataFrame base.
-    - apply_filters(spec)              -> aplica los filtros del FiltersPanel de forma vectorizada y rápida.
-    - clear_filters()                  -> quita filtros.
-    - dataframe_filtered (property)    -> devuelve el df filtrado (o el original si no hay filtros).
+    - generate_fake_transactions(von=None, bis=None, produktart="ALLE", n_rows=1_000_000)
+      Genera el DF base y construye caches NumPy para filtrar rápido.
+
+    - apply_filters(spec): spec del FiltersPanel, con claves:
+        {
+          "COL": {"type":"categorical","values":[...]},
+          "COL": {"type":"numeric","min":"...","max":"..."},
+          "COL": {"type":"date","start":"YYYY-mm-dd","end":"YYYY-mm-dd"}
+        }
+
+    - clear_filters(), dataframe_filtered
     """
 
     def __init__(self):
         self._df_original: pd.DataFrame | None = None
         self._df_filtered: pd.DataFrame | None = None
 
+        # caches
+        self._N: int = 0
+        self._arr: dict[str, np.ndarray] = {}      # columnas numéricas/fecha -> ndarray
+        self._cat_codes: dict[str, np.ndarray] = {}  # columna categórica -> codes
+        self._cat_maps: dict[str, dict] = {}         # valor -> code
+
     # ------------------------------------------------------------------
-    # 1) GENERACIÓN Y PREPROCESADO
+    # 1) GENERACIÓN + PREPROCESADO + CACHES
     # ------------------------------------------------------------------
-    def generate_fake_transactions(self, von=None, bis=None, produktart="ALLE", n_rows=1_000_000):
+    def generate_fake_transactions(
+        self,
+        von=None,
+        bis=None,
+        produktart: str = "ALLE",
+        n_rows: int = 1_000_000,
+    ) -> pd.DataFrame:
         """
-        Genera el DataFrame base y lo guarda como _df_original.
-        Además:
-          - Convierte tipos (fechas, numéricos, categóricos) UNA sola vez.
-          - Resetea cualquier filtro previo.
+        Genera con tu Datos.py y construye caches para filtros rápidos.
         """
         df = create_fake_transactions(von=von, bis=bis, produktart=produktart, n_rows=n_rows)
-        if not isinstance(df, pd.DataFrame):
-            raise ValueError("create_fake_transactions debe devolver un DataFrame")
 
-        df = df.reset_index(drop=True)
-        df = self._prepare_dataframe(df)
+        # Asegura dtypes esperados (Datos.py ya los deja bien, esto es seguridad)
+        # Numéricos:
+        num_cols = ["TXN_AMT", "STRIKE", "RATIO", "NBR_OF_UNITS", "NBR_OF_TRADES"]
+        for c in num_cols:
+            if c in df.columns:
+                df[c] = pd.to_numeric(df[c], errors="coerce")
+
+        # Fechas:
+        date_cols = [c for c in ("TRANSACTION_DATE", "EXPIRY", "DAY", "WEEK", "MONTH") if c in df.columns]
+        for c in date_cols:
+            if not pd.api.types.is_datetime64_any_dtype(df[c]):
+                df[c] = pd.to_datetime(df[c], errors="coerce")
+
+        # Categóricas:
+        cat_cols = [c for c in ("ISSUER_NAME", "UND_TYPE", "TYPE", "CALL_OPTION", "NAME", "ISIN", "UND_ISIN") if c in df.columns]
+        for c in cat_cols:
+            if c in df.columns and df[c].dtype != "category":
+                df[c] = df[c].astype("category")
+
+        # ---- CACHES ----
+        self._N = len(df)
+        self._arr.clear()
+        self._cat_codes.clear()
+        self._cat_maps.clear()
+
+        # Numéricos -> arrays directos (sin copia)
+        for c in num_cols:
+            if c in df.columns:
+                self._arr[c] = df[c].to_numpy(copy=False)
+
+        # Fechas -> int64 ns para comparaciones O(1)
+        for c in date_cols:
+            self._arr[c] = df[c].astype("int64", copy=False)
+
+
+        # Categóricos -> codes + mapa valor->code
+        for c in cat_cols:
+            codes = df[c].cat.codes.to_numpy(copy=False)
+            self._cat_codes[c] = codes
+            # ¡Ojo!: categorías pueden ser objetos no str; mantenemos su valor original
+            cats = list(df[c].cat.categories)
+            self._cat_maps[c] = {v: i for i, v in enumerate(cats)}
 
         self._df_original = df
         self._df_filtered = df
         return df
 
-    def _prepare_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Prepara el DataFrame para que aplicar filtros sea MUY rápido:
-          - Fechas como datetime64.
-          - Numéricos bien tipados.
-          - Cadenas relevantes como 'category'.
-        Se hace solo una vez al cargar/generar datos.
-        """
-        df = df.copy()
-
-        # ---------- 1) Fechas ----------
-        date_cols = []
-        for col in df.columns:
-            name = col.upper()
-            if name.endswith("DATE") or name in {"TRANSACTION_DATE", "EXPIRY"}:
-                date_cols.append(col)
-
-        for col in date_cols:
-            if not is_datetime64_any_dtype(df[col]):
-                df[col] = pd.to_datetime(df[col], errors="coerce")
-
-        # ---------- 2) Numéricos ----------
-        # Si create_fake_transactions ya ha puesto bien los dtypes,
-        # esto será rápido; si no, se corrige aquí.
-        for col in df.columns:
-            if is_bool_dtype(df[col]) or is_datetime64_any_dtype(df[col]):
-                continue
-            # Si la columna ya es numérica, no tocamos.
-            if is_numeric_dtype(df[col]):
-                continue
-            # Heurística: intentar numérico en columnas típicas
-            if col.upper() in {
-                "NBR_OF_TRADES",
-                "NBR_OF_UNITS",
-                "TXN_AMT",
-                "STRIKE",
-                "RATIO",
-            }:
-                df[col] = pd.to_numeric(df[col], errors="coerce")
-
-        # ---------- 3) Categóricos ----------
-        # Columnas claramente categóricas
-        categ_cols = [
-            "ISIN",
-            "UND_ISIN",
-            "NAME",
-            "ISSUER_NAME",
-            "UND_TYPE",
-            "CALL_OPTION",
-            "TYPE",
-        ]
-        for col in categ_cols:
-            if col in df.columns and not is_numeric_dtype(df[col]) and not is_datetime64_any_dtype(df[col]):
-                df[col] = df[col].astype("category")
-
-        # También podemos pasar a category objetos con pocos únicos
-        for col in df.columns:
-            if col in categ_cols:
-                continue
-            s = df[col]
-            if s.dtype == "object" and not is_datetime64_any_dtype(s):
-                nunique = s.nunique(dropna=True)
-                # si hay pocas categorías, compensa
-                if 0 < nunique <= 200:
-                    df[col] = s.astype("category")
-
-        return df
-
     # ------------------------------------------------------------------
-    # 2) APLICAR FILTROS (rápido)
+    # 2) FILTROS RÁPIDOS (NumPy)
     # ------------------------------------------------------------------
-    def apply_filters(self, spec: dict):
+    def apply_filters(self, spec: dict | None):
         """
-        Aplica los filtros definidos por FiltersPanel.get_filters() sobre _df_original.
-
-        Formato esperado por columna (según filters_panel.py):
-          - {'type': 'categorical', 'values': [...]}
-          - {'type': 'numeric',    'min': '...', 'max': '...'}
-          - {'type': 'date',       'start': 'YYYY-MM-DD', 'end': 'YYYY-MM-DD'}
-
-        Implementación optimizada:
-          - Usa una única máscara numpy (mask &= ...).
-          - No reconvierte tipos (se confía en _prepare_dataframe).
-          - Rompe pronto si la máscara queda vacía.
+        Aplica filtros usando caches NumPy. spec en el formato de FiltersPanel.
         """
-        if self._df_original is None:
-            self._df_filtered = None
-            return None
+        if self._df_original is None or not spec:
+            self._df_filtered = self._df_original
+            return self._df_filtered
 
-        df = self._df_original
+        mask = np.ones(self._N, dtype=bool)
 
-        if not spec:
-            # Sin filtros → todo el df
-            self._df_filtered = df
-            return df
+        for col, cfg in (spec or {}).items():
+            ctype = (cfg or {}).get("type")
 
-        n = len(df)
-        if n == 0:
-            self._df_filtered = df
-            return df
-
-        mask = np.ones(n, dtype=bool)
-
-        # Orden de tipos de filtro: primero los más restrictivos
-        TYPE_ORDER = ["categorical", "date", "numeric"]
-
-        for ftype in TYPE_ORDER:
-            for col, cfg in spec.items():
-                if col not in df.columns:
+            # ---------- Numéricos ----------
+            if ctype == "numeric":
+                arr = self._arr.get(col)
+                if arr is None:
+                    # columna no numérica o no cacheada
                     continue
-                if cfg.get("type") != ftype:
+                vmin = cfg.get("min")
+                vmax = cfg.get("max")
+                if vmin not in (None, ""):
+                    try:
+                        mask &= arr >= float(vmin)
+                    except Exception:
+                        pass
+                if vmax not in (None, ""):
+                    try:
+                        mask &= arr <= float(vmax)
+                    except Exception:
+                        pass
+
+            # ---------- Fechas ----------
+            elif ctype == "date":
+                # Soporta TRANSACTION_DATE, EXPIRY, DAY, WEEK, MONTH
+                arr = self._arr.get(col)
+                if arr is None and col in self._df_original.columns:
+                    # cache on-demand si viene un col de fecha no precargado
+                    if pd.api.types.is_datetime64_any_dtype(self._df_original[col]):
+                        self._arr[col] = self._df_original[col].astype("int64", copy=False)
+
+                        arr = self._arr[col]
+                    else:
+                        # intenta convertir una vez (coste amortizado si pasa)
+                        s = pd.to_datetime(self._df_original[col], errors="coerce")
+                        self._df_original[col] = s
+                        self._arr[col] = s.astype("int64", copy=False)
+                        arr = self._arr[col]
+                if arr is None:
                     continue
 
-                # ------------- CATEGÓRICO -------------
-                if ftype == "categorical":
-                    vals = cfg.get("values") or []
-                    if not vals:
-                        continue
+                start = cfg.get("start")
+                end = cfg.get("end")
+                if start:
+                    try:
+                        start_ns = pd.to_datetime(start).value
+                        mask &= arr >= start_ns
+                    except Exception:
+                        pass
+                if end:
+                    try:
+                        # inclusivo hasta el final del día
+                        end_ns = (pd.to_datetime(end) + pd.Timedelta(days=1) - pd.Timedelta(ns=1)).value
+                        mask &= arr <= end_ns
+                    except Exception:
+                        pass
 
-                    # Si es category, isin es muy rápido
-                    series = df[col]
-                    valid = series.astype(str).isin(vals).to_numpy()
-                    mask &= valid
+            # ---------- Categóricos ----------
+            elif ctype == "categorical":
+                vals = cfg.get("values") or []
+                if not vals:
+                    continue
 
-                # ------------- FECHA -------------
-                elif ftype == "date":
-                    start = cfg.get("start") or ""
-                    end = cfg.get("end") or ""
-                    if not start and not end:
-                        continue
+                codes = self._cat_codes.get(col)
+                v2code = self._cat_maps.get(col)
 
-                    col_vals = df[col].to_numpy()  # datetime64[ns]
+                if codes is not None and v2code is not None:
+                    # Convierte valores -> codes (ignora los que no existen)
+                    wanted = [v2code[v] for v in vals if v in v2code]
+                    if wanted:
+                        mask &= np.isin(codes, np.asarray(wanted, dtype=codes.dtype))
+                    else:
+                        mask &= False
+                else:
+                    # fallback: isin de pandas (más lento, sólo si columna no está como category)
+                    if col in self._df_original.columns:
+                        mask &= self._df_original[col].astype(str).isin(vals).to_numpy()
 
-                    if start:
-                        try:
-                            start_ts = pd.to_datetime(start)
-                            mask &= col_vals >= start_ts
-                        except Exception:
-                            pass
+            # Otros tipos: ignorar
+            else:
+                continue
 
-                    if end:
-                        try:
-                            end_ts = pd.to_datetime(end)
-                            mask &= col_vals <= end_ts
-                        except Exception:
-                            pass
-
-                # ------------- NUMÉRICO -------------
-                elif ftype == "numeric":
-                    vmin_str = (cfg.get("min") or "").strip()
-                    vmax_str = (cfg.get("max") or "").strip()
-                    if not vmin_str and not vmax_str:
-                        continue
-
-                    col_vals = df[col].to_numpy()
-
-                    vmin = None
-                    vmax = None
-                    if vmin_str:
-                        try:
-                            vmin = float(vmin_str)
-                        except Exception:
-                            vmin = None
-                    if vmax_str:
-                        try:
-                            vmax = float(vmax_str)
-                        except Exception:
-                            vmax = None
-
-                    if vmin is not None:
-                        mask &= col_vals >= vmin
-                    if vmax is not None:
-                        mask &= col_vals <= vmax
-
-                # Si ya no queda ninguna fila, podemos cortar
-                if not mask.any():
-                    break
-            # Comprobar también aquí para romper el bucle exterior
-            if not mask.any():
-                break
-
-        self._df_filtered = df.loc[mask]
+        self._df_filtered = self._df_original.loc[mask]
         return self._df_filtered
 
     # ------------------------------------------------------------------
-    # 3) RESET / ACCESSORS
+    # 3) RESET + ACCESSORS
     # ------------------------------------------------------------------
     def clear_filters(self):
         """Quita filtros y vuelve al DataFrame original."""
@@ -239,7 +204,5 @@ class DataService:
 
     @property
     def dataframe_filtered(self) -> pd.DataFrame | None:
-        """
-        Devuelve el DataFrame filtrado si existe; en caso contrario, el original.
-        """
+        """Devuelve el DF filtrado si existe; si no, el original."""
         return self._df_filtered if self._df_filtered is not None else self._df_original

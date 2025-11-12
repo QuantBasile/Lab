@@ -294,8 +294,10 @@ class MainWindow(tk.Frame):
 
     def on_clear_filters(self):
         self.filters_panel.reset()
-        self.service.clear_filters()
+        # No recalcules todo, simplemente aplica filtros vacíos
+        self.service.apply_filters({})
         self._refresh_views()
+
 
     def _refresh_views(self):
         df_view = self.service.dataframe_filtered.head(self.MAX_DISPLAY).copy()

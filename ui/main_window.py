@@ -11,6 +11,7 @@ from ui.volume_table import VolumeTable
 from ui.call_put_share import CallPutShare
 from ui.call_put_rolling import CallPutRolling
 from ui.hsbc_marktanteil import HSBCMarktanteil
+from ui.top20_names import Top20Names
 import traceback
 from datetime import date, timedelta  
 
@@ -198,6 +199,11 @@ class MainWindow(tk.Frame):
         self.hsbc_marktanteil = HSBCMarktanteil(tab_hsbc)
         self.hsbc_marktanteil.pack(fill="both", expand=True)
         self.nb.add(tab_hsbc, text="HSBC Marktanteil")
+        
+        tab_top20 = ttk.Frame(self.nb)
+        self.top20_sheet = Top20Names(tab_top20)
+        self.top20_sheet.pack(fill="both", expand=True)
+        self.nb.add(tab_top20, text="Top 20 Names")
 
 
 
@@ -311,6 +317,7 @@ class MainWindow(tk.Frame):
         self.call_put_share.update_plot(df_full)
         self.call_put_rolling.update_plot(df_full)
         self.hsbc_marktanteil.update_plot(df_full)
+        self.top20_sheet.update_plot(df_full)
 
         
     def _get_split_height(self):

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, date
 ISSUERS = np.array(["HSBC", "DB", "CITI", "BNPP", "UBS", "JPM", "GS", "MS"])
 UNDERLYING_CODES = np.array([
     "AAPL", "MSFT", "SPX", "EURUSD", "XAUUSD",
-    "TSLA", "NDAQ", "AMZN", "DAX", "CAC40",
+    "TSLA", "NDAQ", "AMZN", "DAX", "CAC40","NASDAQ","Hensholdt","RWE","Rheinmetal",
 ])
 UNDERLYING_TYPES = np.array(["Equity", "Index", "FX", "Commodity"])
 

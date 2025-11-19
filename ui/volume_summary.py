@@ -1,91 +1,94 @@
-# ui/volume_summary.py
+"""
+VolumeSummary – Zwei Histogramme:
+
+[0,0] Stacked volume per issuer (Σ TXN_AMT), optionally broken down by UND_TYPE.
+       - Each stacked segment labelled with % contribution.
+       - Top of each bar labelled with total volume.
+
+[0,1] Market share histogram (% of total volume per issuer).
+
+Public API:
+    update_view(df)
+
+This module expects at minimum:
+    - ISSUER_NAME
+    - TXN_AMT
+    - (optional) UND_TYPE
+"""
+
+from __future__ import annotations
+
 import tkinter as tk
 from tkinter import ttk
-import pandas as pd
-import numpy as np
+from typing import Optional, Iterable
 
+import numpy as np
+import pandas as pd
+import matplotlib.ticker as mticker
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
-import matplotlib.ticker as mticker
 
-# 🔹 Colores globales por Emittent
 from utils.issuer_colors import get_issuer_color
 
 
 class VolumeSummary(ttk.Frame):
-    """
-    Pestaña 'Volumen-Übersicht' (1 Zeile, 2 Spalten):
+    """Summary view: stacked volume + market share (per issuer)."""
 
-      [0,0] Histogramm (Σ TXN_AMT nach Emittent, gestapelt nach UND_TYPE falls vorhanden)
-             – über jeder Säule: Gesamtvolumen
-             – in jedem Segment: Anteil dieses UND_TYPE am Emittenten-Volumen (%)
-
-      [0,1] Histogramm (Marktanteil in % nach Emittent)
-
-    API:
-      update_view(df)
-        df: gefiltertes DataFrame.
-    """
-
-    def __init__(self, master=None):
+    def __init__(self, master=None) -> None:
         super().__init__(master)
-        self._df = None
-        self._build()
+        self._df: Optional[pd.DataFrame] = None
+        self._build_ui()
 
-    # ---------- UI ----------
-    def _build(self):
-        # Grid: 1 Zeile x 2 Spalten
+    # ----------------------------------------------------------------------
+    # --- UI Construction ---------------------------------------------------
+    # ----------------------------------------------------------------------
+    def _build_ui(self) -> None:
         self.rowconfigure(0, weight=1)
-        self.columnconfigure(0, weight=1)  # linkes Histogramm
-        self.columnconfigure(1, weight=1)  # rechtes Histogramm
+        self.columnconfigure(0, weight=1)
+        self.columnconfigure(1, weight=1)
 
-        # ===== Linkes Histogramm (gestapelt) =====
-        left_wrap = tk.Frame(self, bg="white", bd=0, highlightthickness=0)
-        left_wrap.grid(row=0, column=0, sticky="nsew", padx=(10, 6), pady=10)
-        left_wrap.rowconfigure(1, weight=1)
-        left_wrap.columnconfigure(0, weight=1)
+        # ------ LEFT PANEL ------ (stacked histogram)
+        left = tk.Frame(self, bg="white", bd=0, highlightthickness=0)
+        left.grid(row=0, column=0, sticky="nsew", padx=(10, 6), pady=10)
+        left.rowconfigure(1, weight=1)
+        left.columnconfigure(0, weight=1)
 
         self.fig_left = Figure(figsize=(6, 4.2), dpi=100)
         self.ax_left = self.fig_left.add_subplot(111)
         self.fig_left.subplots_adjust(left=0.08, right=0.98, top=0.9, bottom=0.30)
 
-        self.canvas_left = FigureCanvasTkAgg(self.fig_left, master=left_wrap)
+        self.canvas_left = FigureCanvasTkAgg(self.fig_left, master=left)
         self.canvas_left.get_tk_widget().configure(bg="white", highlightthickness=0)
         self.canvas_left.get_tk_widget().grid(row=1, column=0, sticky="nsew")
 
-        self.toolbar_left = NavigationToolbar2Tk(self.canvas_left, left_wrap, pack_toolbar=False)
-        self.toolbar_left.update()
-        self.toolbar_left.grid(row=0, column=0, sticky="w", pady=(0, 6))
-        try:
-            self.toolbar_left.configure(background="white")
-            for w in self.toolbar_left.winfo_children():
-                try:
-                    w.configure(background="white")
-                except Exception:
-                    pass
-        except Exception:
-            pass
+        tb_left = NavigationToolbar2Tk(self.canvas_left, left, pack_toolbar=False)
+        tb_left.grid(row=0, column=0, sticky="w", pady=(0, 6))
+        self._set_toolbar_background(tb_left)
 
-        # ===== Rechtes Histogramm (Marktanteil %) =====
-        right_wrap = tk.Frame(self, bg="white", bd=0, highlightthickness=0)
-        right_wrap.grid(row=0, column=1, sticky="nsew", padx=(6, 10), pady=10)
-        right_wrap.rowconfigure(1, weight=1)
-        right_wrap.columnconfigure(0, weight=1)
+        # ------ RIGHT PANEL ------ (market share)
+        right = tk.Frame(self, bg="white", bd=0, highlightthickness=0)
+        right.grid(row=0, column=1, sticky="nsew", padx=(6, 10), pady=10)
+        right.rowconfigure(1, weight=1)
+        right.columnconfigure(0, weight=1)
 
         self.fig_right = Figure(figsize=(6, 4.2), dpi=100)
         self.ax_right = self.fig_right.add_subplot(111)
         self.fig_right.subplots_adjust(left=0.08, right=0.98, top=0.9, bottom=0.30)
 
-        self.canvas_right = FigureCanvasTkAgg(self.fig_right, master=right_wrap)
+        self.canvas_right = FigureCanvasTkAgg(self.fig_right, master=right)
         self.canvas_right.get_tk_widget().configure(bg="white", highlightthickness=0)
         self.canvas_right.get_tk_widget().grid(row=1, column=0, sticky="nsew")
 
-        self.toolbar_right = NavigationToolbar2Tk(self.canvas_right, right_wrap, pack_toolbar=False)
-        self.toolbar_right.update()
-        self.toolbar_right.grid(row=0, column=0, sticky="w", pady=(0, 6))
+        tb_right = NavigationToolbar2Tk(self.canvas_right, right, pack_toolbar=False)
+        tb_right.grid(row=0, column=0, sticky="w", pady=(0, 6))
+        self._set_toolbar_background(tb_right)
+
+    @staticmethod
+    def _set_toolbar_background(toolbar: NavigationToolbar2Tk) -> None:
+        """Safely set all toolbar backgrounds to white."""
         try:
-            self.toolbar_right.configure(background="white")
-            for w in self.toolbar_right.winfo_children():
+            toolbar.configure(background="white")
+            for w in toolbar.winfo_children():
                 try:
                     w.configure(background="white")
                 except Exception:
@@ -93,113 +96,116 @@ class VolumeSummary(ttk.Frame):
         except Exception:
             pass
 
-    # ---------- API ----------
-    def update_view(self, df: pd.DataFrame):
+    # ----------------------------------------------------------------------
+    # --- Public API --------------------------------------------------------
+    # ----------------------------------------------------------------------
+    def update_view(self, df: pd.DataFrame) -> None:
+        """Receive filtered DataFrame and redraw both summary plots."""
         self._df = df
         self._draw()
 
-    # ---------- Helpers de formato ----------
-    def _format_volume_tick(self, x, pos):
-        """
-        Formato dinámico del eje Y (Volumen):
-          - < 1 Mio: estándar con miles: 12,345
-          - >= 1 Mio: abreviado en M, p.ej. 1.1M, 2M, 10M
-        """
+    # ----------------------------------------------------------------------
+    # --- Formatting Helpers ------------------------------------------------
+    # ----------------------------------------------------------------------
+    @staticmethod
+    def _format_volume_tick(x, pos) -> str:
+        """Human-readable volume: 12,345 or 1.2M, 10M, etc."""
         abs_x = abs(x)
         if abs_x >= 1_000_000:
-            value = x / 1_000_000.0
-            if abs_x >= 10_000_000:
-                return f"{value:,.0f}M"
-            else:
-                return f"{value:,.1f}M"
-        else:
-            return f"{x:,.0f}"
+            v = x / 1_000_000
+            return f"{v:,.0f}M" if abs_x >= 10_000_000 else f"{v:,.1f}M"
+        return f"{x:,.0f}"
 
-    def _format_pct_tick(self, x, pos):
-        """Formato para ejes de porcentaje."""
+    @staticmethod
+    def _format_pct_tick(x, pos) -> str:
+        """Percentage ticks."""
         return f"{x:.0f} %"
 
-    # ---------- Drawing ----------
-    def _draw(self):
-        # Limpiar
+    # ----------------------------------------------------------------------
+    # --- Drawing / Main Logic ---------------------------------------------
+    # ----------------------------------------------------------------------
+    def _draw(self) -> None:
         self.ax_left.clear()
         self.ax_right.clear()
 
-        # Data checks
         if self._df is None or self._df.empty:
             self._draw_empty()
             return
 
-        s = self._df
-        if "ISSUER_NAME" not in s.columns or "TXN_AMT" not in s.columns:
-            self._draw_empty(msg="Spalten fehlen")
+        df = self._df
+
+        if "ISSUER_NAME" not in df or "TXN_AMT" not in df:
+            self._draw_empty("Spalten fehlen")
             return
 
-        # Totales por emisor, orden desc
-        grp = (
-            s.groupby("ISSUER_NAME", dropna=False, observed=False)["TXN_AMT"]
+        # Order emitters by volume descending
+        totals_by_issuer = (
+            df.groupby("ISSUER_NAME", dropna=False, observed=False)["TXN_AMT"]
             .sum()
             .sort_values(ascending=False)
         )
-        emitters = grp.index.tolist()
-        totals = grp.values.astype(float)
-        total_all = float(s["TXN_AMT"].sum())
-        denom_all = total_all if total_all != 0.0 else 1.0
+        emitters = totals_by_issuer.index.tolist()
+        totals = totals_by_issuer.values.astype(float)
+
+        total_all = totals.sum()
+        total_all_safe = total_all if total_all > 0 else 1.0
 
         x = np.arange(len(emitters))
 
-        # ===================== LINKES HISTOGRAMM =====================
-        has_und_type = "UND_TYPE" in s.columns
+        # ---------------------------------------------------------------
+        # LEFT: STACKED HISTOGRAM (WITH OPTIONAL UND_TYPE)
+        # ---------------------------------------------------------------
+        if "UND_TYPE" in df:
+            self._draw_stacked_by_undtype(df, emitters, x)
+        else:
+            self._draw_simple_bars(df, emitters, totals, x)
 
-        if has_und_type:
-            # tabla Emittent x UND_TYPE (Volumen)
-            pivot = (
-                s.groupby(["ISSUER_NAME", "UND_TYPE"], dropna=False, observed=False)["TXN_AMT"]
-                .sum()
-                .unstack(fill_value=0.0)
+        # ---------------------------------------------------------------
+        # RIGHT: MARKET SHARE
+        # ---------------------------------------------------------------
+        market_share = (totals / total_all_safe) * 100
+        self._draw_market_share(emitters, x, market_share)
+
+        self.canvas_left.draw_idle()
+        self.canvas_right.draw_idle()
+
+    # ----------------------------------------------------------------------
+    # --- Left Panel Construction ------------------------------------------
+    # ----------------------------------------------------------------------
+    def _draw_stacked_by_undtype(
+        self, df: pd.DataFrame, emitters: Iterable[str], x: np.ndarray
+    ) -> None:
+        """Draw left histogram as stacked volume per UND_TYPE."""
+        pivot = (
+            df.groupby(["ISSUER_NAME", "UND_TYPE"], dropna=False, observed=False)["TXN_AMT"]
+            .sum()
+            .unstack(fill_value=0.0)
+            .reindex(emitters)
+        )
+
+        und_types = list(pivot.columns)
+        bottom = np.zeros(len(emitters), float)
+
+        # Simple palette
+        base_colors = ["#2563eb", "#059669", "#f97316", "#7c3aed", "#e11d48"]
+        colors = {ut: base_colors[i % len(base_colors)] for i, ut in enumerate(und_types)}
+
+        totals_per_issuer = pivot.sum(axis=1).values
+
+        for ut in und_types:
+            vals = pivot[ut].values.astype(float)
+            bars = self.ax_left.bar(
+                x, vals, bottom=bottom, label=str(ut), color=colors[ut], alpha=0.9
             )
-            pivot = pivot.reindex(index=emitters)
 
-            und_types = list(pivot.columns)
-            bottom = np.zeros(len(emitters), dtype=float)
-
-            # paleta simple para UND_TYPE
-            base_colors = [
-                "#2563eb",  # blau
-                "#059669",  # grün
-                "#f97316",  # orange
-                "#7c3aed",  # violett
-                "#e11d48",  # rot
-            ]
-            color_map = {
-                ut: base_colors[i % len(base_colors)]
-                for i, ut in enumerate(und_types)
-            }
-
-            # Para etiquetas de % dentro de las barras necesitamos los totales por Emittent
-            totals_per_issuer = pivot.sum(axis=1).values  # misma orden que emitters
-
-            for ut in und_types:
-                vals = pivot[ut].values.astype(float)
-                bars = self.ax_left.bar(
-                    x,
-                    vals,
-                    bottom=bottom,
-                    label=str(ut),
-                    color=color_map.get(ut),
-                    alpha=0.9,
-                )
-
-                # Porcentaje dentro de la barra (segmento vs total Emittent)
-                for i, b in enumerate(bars):
-                    h = b.get_height()
-                    total_iss = totals_per_issuer[i]
-                    if h <= 0 or total_iss <= 0:
-                        continue
-                    pct = (h / total_iss) * 100.0
-                    # texto centrado en el segmento
-                    bx = b.get_x() + b.get_width() / 2.0
-                    by = b.get_y() + h / 2.0
+            # % label inside each bar segment
+            for i, b in enumerate(bars):
+                h = b.get_height()
+                tot = totals_per_issuer[i]
+                if h > 0 and tot > 0:
+                    pct = (h / tot) * 100
+                    bx = b.get_x() + b.get_width() / 2
+                    by = b.get_y() + h / 2
                     self.ax_left.text(
                         bx,
                         by,
@@ -210,108 +216,108 @@ class VolumeSummary(ttk.Frame):
                         color="white" if pct > 10 else "black",
                     )
 
-                bottom += vals
+            bottom += vals
 
-            self.ax_left.legend(title="UND_TYPE", fontsize=8, title_fontsize=9)
-            ymax_left = bottom.max() if bottom.size > 0 else 0.0
-        else:
-            # Fallback: no hay UND_TYPE -> barras simples con color por Emittent
-            bars_left = self.ax_left.bar(x, totals)
-            for i, iss in enumerate(emitters):
-                color = get_issuer_color(iss)
-                if color:
-                    bars_left[i].set_color(color)
-                    bars_left[i].set_alpha(0.9)
-            ymax_left = totals.max() if totals.size > 0 else 0.0
-            # En este caso no hay % por UND_TYPE dentro de barras
+        self.ax_left.legend(title="UND_TYPE", fontsize=8, title_fontsize=9)
 
-        # Etiqueta con el volumen total encima de cada barra (usar bottom final si stacked, si no totals)
-        volumes_for_label = bottom if has_und_type else totals
-        for i, vol in enumerate(volumes_for_label):
-            if vol <= 0:
-                continue
-            bx = x[i]
-            # usar el mismo formateo de volumen
-            txt = self._format_volume_tick(vol, None)
-            self.ax_left.text(
-                bx,
-                vol,
-                txt,
-                ha="center",
-                va="bottom",
-                fontsize=9,
-                rotation=0,
-                clip_on=True,
-            )
+        # Total on top
+        for i, vol in enumerate(bottom):
+            if vol > 0:
+                self.ax_left.text(
+                    x[i],
+                    vol,
+                    self._format_volume_tick(vol, None),
+                    ha="center",
+                    va="bottom",
+                    fontsize=9,
+                )
 
-        # Ejes, formato y título del izquierdo
-        self.ax_left.set_xticks(x)
+        self._format_left_axis(emitters, bottom.max() if bottom.size else 0)
+
+    def _draw_simple_bars(
+        self, df: pd.DataFrame, emitters: Iterable[str], totals: np.ndarray, x: np.ndarray
+    ) -> None:
+        """Fallback: no UND_TYPE column → simple bars colored per issuer."""
+        bars = self.ax_left.bar(x, totals)
+
+        for i, iss in enumerate(emitters):
+            col = get_issuer_color(iss)
+            if col:
+                bars[i].set_color(col)
+                bars[i].set_alpha(0.9)
+
+        for i, vol in enumerate(totals):
+            if vol > 0:
+                self.ax_left.text(
+                    x[i],
+                    vol,
+                    self._format_volume_tick(vol, None),
+                    ha="center",
+                    va="bottom",
+                    fontsize=9,
+                )
+
+        self._format_left_axis(emitters, totals.max() if totals.size else 0)
+
+    # ----------------------------------------------------------------------
+    # --- Left Axis Formatting ----------------------------------------------
+    # ----------------------------------------------------------------------
+    def _format_left_axis(self, emitters: Iterable[str], ymax: float) -> None:
+        self.ax_left.set_xticks(np.arange(len(emitters)))
         self.ax_left.set_xticklabels(emitters, rotation=20, ha="right")
-        self.ax_left.yaxis.set_major_formatter(
-            mticker.FuncFormatter(self._format_volume_tick)
-        )
+        self.ax_left.yaxis.set_major_formatter(mticker.FuncFormatter(self._format_volume_tick))
         self.ax_left.grid(True, axis="y", alpha=0.3)
-        if has_und_type:
-            self.ax_left.set_title("Volumen nach Emittent und Basiswerttyp (Σ TXN_AMT)")
-        else:
-            self.ax_left.set_title("Volumen nach Emittent (Σ TXN_AMT)")
         self.ax_left.set_xlabel("")
         self.ax_left.set_ylabel("")
-        if ymax_left > 0:
-            self.ax_left.set_ylim(0, ymax_left * 1.12)
+        self.ax_left.set_title("Volumen nach Emittent (Σ TXN_AMT)")
+        if ymax > 0:
+            self.ax_left.set_ylim(0, ymax * 1.12)
 
-        self.fig_left.tight_layout()
-        self.canvas_left.draw_idle()
+    # ----------------------------------------------------------------------
+    # --- Right Panel Construction ------------------------------------------
+    # ----------------------------------------------------------------------
+    def _draw_market_share(
+        self, emitters: Iterable[str], x: np.ndarray, market_share: np.ndarray
+    ) -> None:
+        bars = self.ax_right.bar(x, market_share)
 
-        # ===================== RECHTES HISTOGRAMM (Marktanteil %) =====================
-        share_pct = (totals / denom_all) * 100.0  # Marktanteil pro Emittent
-
-        bars_right = self.ax_right.bar(x, share_pct)
-
-        # Colores por Emittent
         for i, iss in enumerate(emitters):
-            color = get_issuer_color(iss)
-            if color:
-                bars_right[i].set_color(color)
-                bars_right[i].set_alpha(0.9)
+            col = get_issuer_color(iss)
+            if col:
+                bars[i].set_color(col)
+                bars[i].set_alpha(0.9)
 
-        # Etiqueta de porcentaje encima de cada barra
-        ymax_right = 0.0
-        for b, pct in zip(bars_right, share_pct):
+        ymax = 0
+        for b, pct in zip(bars, market_share):
             h = b.get_height()
-            ymax_right = max(ymax_right, h)
-            bx = b.get_x() + b.get_width() / 2.0
-            if h <= 0:
-                continue
-            self.ax_right.text(
-                bx,
-                h,
-                f"{pct:.1f}%",
-                ha="center",
-                va="bottom",
-                fontsize=9,
-                rotation=0,
-                clip_on=True,
-            )
+            ymax = max(ymax, h)
+            if h > 0:
+                bx = b.get_x() + b.get_width() / 2
+                self.ax_right.text(
+                    bx,
+                    h,
+                    f"{pct:.1f}%",
+                    ha="center",
+                    va="bottom",
+                    fontsize=9,
+                )
 
-        # Ejes, formato y título del derecho
         self.ax_right.set_xticks(x)
         self.ax_right.set_xticklabels(emitters, rotation=20, ha="right")
-        self.ax_right.yaxis.set_major_formatter(
-            mticker.FuncFormatter(self._format_pct_tick)
-        )
+        self.ax_right.yaxis.set_major_formatter(mticker.FuncFormatter(self._format_pct_tick))
         self.ax_right.grid(True, axis="y", alpha=0.3)
-        self.ax_right.set_title("Marktanteil nach Emittent (Volumen %)")
         self.ax_right.set_xlabel("")
         self.ax_right.set_ylabel("")
-        if ymax_right > 0:
-            self.ax_right.set_ylim(0, ymax_right * 1.12)
+        self.ax_right.set_title("Marktanteil nach Emittent (Volumen %)")
 
-        self.fig_right.tight_layout()
-        self.canvas_right.draw_idle()
+        if ymax > 0:
+            self.ax_right.set_ylim(0, ymax * 1.12)
 
-    # ---------- Helpers ----------
-    def _draw_empty(self, msg="Keine Daten"):
+    # ----------------------------------------------------------------------
+    # --- Empty State --------------------------------------------------------
+    # ----------------------------------------------------------------------
+    def _draw_empty(self, msg: str = "Keine Daten") -> None:
+        """Render both axes with a centered message."""
         for ax in (self.ax_left, self.ax_right):
             ax.clear()
             ax.text(0.5, 0.5, msg, ha="center", va="center", transform=ax.transAxes)

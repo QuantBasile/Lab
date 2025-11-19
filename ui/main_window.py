@@ -1,6 +1,10 @@
+import threading
+import traceback
+from datetime import date, timedelta
+
 import tkinter as tk
-from tkinter import ttk, messagebox
-#from tkcalendar import DateEntry    
+from tkinter import messagebox, ttk
+
 from services.data_service import DataService
 from ui.filters_panel import FiltersPanel
 from ui.table_widget import TableFrame
@@ -13,42 +17,52 @@ from ui.call_put_rolling import CallPutRolling
 from ui.hsbc_marktanteil import HSBCMarktanteil
 from ui.top20_names import Top20Names
 from ui.simple_calendar import SimpleDateEntry as DateEntry
-import traceback
-from datetime import date, timedelta  
-import threading
 
 
 class MainWindow(tk.Frame):
+    """
+    Main application window for the Marktanteil dashboard.
+    Handles layout, user interaction and coordination with DataService.
+    """
+
     MAX_DISPLAY = 1000
 
-    def __init__(self, master=None):
+    def __init__(self, master: tk.Misc | None = None) -> None:
         super().__init__(master)
         self.service = DataService()
         self._build_ui()
 
-    def _build_ui(self):
+    # ------------------------------------------------------------------
+    # UI BUILD
+    # ------------------------------------------------------------------
+    def _build_ui(self) -> None:
         # ======== Topbar ========
         topbar = ttk.Frame(self, style="Topbar.TFrame")
         topbar.pack(side="top", fill="x")
-        ttk.Label(topbar, text="Marktanteil Dashboard", style="Topbar.TLabel").pack(side="left", padx=12, pady=10)
+        ttk.Label(
+            topbar,
+            text="Marktanteil Dashboard",
+            style="Topbar.TLabel",
+        ).pack(side="left", padx=12, pady=10)
 
-        # ======== Shell sin sidebar ========
+        # ======== Shell without sidebar ========
         shell = ttk.Frame(self, style="Card.TFrame")
         shell.pack(side="top", fill="both", expand=True, padx=12, pady=12)
-        
-        # --- Content (ocupa todo el espacio) ---
+
+        # --- Content (takes all space) ---
         content = ttk.Frame(shell, style="Card.TFrame")
         content.pack(side="left", fill="both", expand=True)
 
         inner = ttk.Frame(content, style="CardInner.TFrame")
         inner.pack(fill="both", expand=True)
-        
+        # keep a reference for sizing helpers
+        self.inner = inner  # type: ignore[attr-defined]
 
-        # === Actions Row: fechas + tipo de producto ===
+        # === Actions Row: dates + product type ===
         actions = ttk.Frame(inner, style="Actions.TFrame")
         actions.pack(side="top", fill="x", padx=10, pady=8)
-        
-        # Fechas con DateEntry (tkcalendar o SimpleDateEntry)
+
+        # ----- Date range: Von / Bis -----
         ttk.Label(actions, text="Von:").pack(side="left")
         self.von_var = tk.StringVar()
         self.von_date = DateEntry(
@@ -57,9 +71,9 @@ class MainWindow(tk.Frame):
             date_pattern="yyyy-mm-dd",
             width=12,
         )
-        self._style_green(self.von_date)   # <<< NUEVO
+        self._style_green(self.von_date)
         self.von_date.pack(side="left", padx=(4, 10))
-        
+
         ttk.Label(actions, text="Bis:").pack(side="left")
         self.bis_var = tk.StringVar()
         self.bis_date = DateEntry(
@@ -68,16 +82,15 @@ class MainWindow(tk.Frame):
             date_pattern="yyyy-mm-dd",
             width=12,
         )
-        self._style_green(self.bis_date)   # <<< NUEVO
+        self._style_green(self.bis_date)
         self.bis_date.pack(side="left", padx=(4, 16))
-        
-        # Valores por defecto: últimos 90 días
+
+        # Default date range: last 90 days
         today = date.today()
         self.bis_date.set_date(today)
         self.von_date.set_date(today - timedelta(days=90))
 
-        
-        # Botones de generación (input) en lila claro
+        # ----- Product buttons (input) in light purple -----
         btn_input_kwargs = dict(
             bg="#e9d5ff",
             fg="#000000",
@@ -87,7 +100,7 @@ class MainWindow(tk.Frame):
             pady=5,
             cursor="hand2",
         )
-        
+
         self.btn_alle = tk.Button(
             actions,
             text="Alle",
@@ -95,7 +108,7 @@ class MainWindow(tk.Frame):
             **btn_input_kwargs,
         )
         self.btn_alle.pack(side="left", padx=(0, 6))
-        
+
         self.btn_turbo = tk.Button(
             actions,
             text="Turbo",
@@ -103,7 +116,7 @@ class MainWindow(tk.Frame):
             **btn_input_kwargs,
         )
         self.btn_turbo.pack(side="left", padx=(0, 6))
-        
+
         self.btn_vanilla = tk.Button(
             actions,
             text="Vanilla",
@@ -112,111 +125,122 @@ class MainWindow(tk.Frame):
         )
         self.btn_vanilla.pack(side="left", padx=(0, 12))
 
-        
+        # Toggle filters button
         self.btn_toggle_filters = tk.Button(
-            actions, text="Ocultar filtros ▲",
-            bg="#e0ecff", fg="#0b0b0b", activebackground="#cfe2ff",
-            relief="flat", padx=10, pady=5, command=self._toggle_filters, cursor="hand2"
+            actions,
+            text="Ocultar filtros ▲",
+            bg="#e0ecff",
+            fg="#0b0b0b",
+            activebackground="#cfe2ff",
+            relief="flat",
+            padx=10,
+            pady=5,
+            command=self._toggle_filters,
+            cursor="hand2",
         )
-        #self.btn_toggle_filters.config(state="disabled")
         self.btn_toggle_filters.pack(side="left", padx=(0, 12))
-        
+
+        # Apply / Clear filters
         self.btn_apply = tk.Button(
-            actions, text="Aplicar filtros",
-            bg="#2563eb", fg="white", activebackground="#1d4ed8",
-            relief="flat", padx=12, pady=6, command=self.on_apply_filters, cursor="hand2"
+            actions,
+            text="Aplicar filtros",
+            bg="#2563eb",
+            fg="white",
+            activebackground="#1d4ed8",
+            relief="flat",
+            padx=12,
+            pady=6,
+            command=self.on_apply_filters,
+            cursor="hand2",
         )
         self.btn_apply.config(state="disabled")
         self.btn_apply.pack(side="left")
-        
-        self.btn_clear = tk.Button(
-            actions, text="Borrar filtros",
-            bg="#e0ecff", fg="#0b0b0b", activebackground="#cfe2ff",
-            relief="flat", padx=10, pady=5, command=self.on_clear_filters, cursor="hand2"
-        )
 
+        self.btn_clear = tk.Button(
+            actions,
+            text="Borrar filtros",
+            bg="#e0ecff",
+            fg="#0b0b0b",
+            activebackground="#cfe2ff",
+            relief="flat",
+            padx=10,
+            pady=5,
+            command=self.on_clear_filters,
+            cursor="hand2",
+        )
         self.btn_clear.config(state="disabled")
         self.btn_clear.pack(side="left", padx=(8, 0))
 
-
-        # --- Splitter vertical: filtros arriba / notebook abajo ---
+        # --- Vertical splitter: filters on top / notebook below ---
         self.split = ttk.Panedwindow(inner, orient="vertical")
         self.split.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-        
-        # Pane 1: filtros (wrap + panel dentro)
+
+        # Pane 1: filters (wrap + panel inside)
         self.filters_wrap = ttk.Frame(self.split, style="Card.TFrame")
         self.filters_panel = FiltersPanel(self.filters_wrap)
-        
-        # MUY IMPORTANTE: empaca el panel dentro del wrap
         self.filters_panel.pack(side="top", fill="both", expand=True)
-        
-        # Pane 2: notebook (metemos el notebook dentro de un wrap)
+
+        # Pane 2: notebook
         self.nb_wrap = ttk.Frame(self.split, style="Card.TFrame")
         self.nb = ttk.Notebook(self.nb_wrap, style="CustomNotebook")
         self.nb.pack(side="top", fill="both", expand=True)
-        
-        # Añadir panes al splitter con pesos y minsize
-        self.split.add(self.filters_wrap, weight=1)         # filtros crecen/encogen
-        self.split.add(self.nb_wrap, weight=3)              # notebook ocupa más
-        #self.split.paneconfigure(self.filters_wrap, minsize=120)  # altura mínima de filtros
-        #self.split.paneconfigure(self.nb_wrap,      minsize=200)
-        
-        # Tabs como tenías:
+
+        self.split.add(self.filters_wrap, weight=1)
+        self.split.add(self.nb_wrap, weight=3)
+
+        # ----- Tabs -----
         tab_table = ttk.Frame(self.nb)
-        self.table = TableFrame(tab_table); self.table.pack(fill="both", expand=True)
+        self.table = TableFrame(tab_table)
+        self.table.pack(fill="both", expand=True)
         self.nb.add(tab_table, text="Tabla")
-        
+
         tab_volume = ttk.Frame(self.nb)
         self.volume_sheet = VolumeSheet(tab_volume)
         self.volume_sheet.pack(fill="both", expand=True)
         self.nb.add(tab_volume, text="Volumen")
-        
+
         tab_volsum = ttk.Frame(self.nb, style="CardInner.TFrame")
         self.volume_summary = VolumeSummary(tab_volsum)
         self.volume_summary.pack(side="top", fill="both", expand=True)
         self.nb.add(tab_volsum, text="Volumen-summary")
-        
+
         tab_volpct = ttk.Frame(self.nb, style="CardInner.TFrame")
         self.volume_percentage = VolumePercentage(tab_volpct)
         self.volume_percentage.pack(side="top", fill="both", expand=True)
         self.nb.add(tab_volpct, text="Volumen-%")
-        
-        
+
         tab_vtable = ttk.Frame(self.nb, style="CardInner.TFrame")
         self.volume_table = VolumeTable(tab_vtable)
         self.volume_table.pack(side="top", fill="both", expand=True)
         self.nb.add(tab_vtable, text="volumen_tabla")
 
-
         tab_callput = ttk.Frame(self.nb, style="CardInner.TFrame")
         self.call_put_share = CallPutShare(tab_callput)
         self.call_put_share.pack(side="top", fill="both", expand=True)
         self.nb.add(tab_callput, text="CALL/PUT share")
-        
+
         tab_cproll = ttk.Frame(self.nb, style="CardInner.TFrame")
         self.call_put_rolling = CallPutRolling(tab_cproll)
         self.call_put_rolling.pack(side="top", fill="both", expand=True)
         self.nb.add(tab_cproll, text="CALL/PUT rolling 7d")
-        
+
         tab_hsbc = ttk.Frame(self.nb)
         self.hsbc_marktanteil = HSBCMarktanteil(tab_hsbc)
         self.hsbc_marktanteil.pack(fill="both", expand=True)
         self.nb.add(tab_hsbc, text="HSBC Marktanteil")
-        
+
         tab_top20 = ttk.Frame(self.nb)
         self.top20_sheet = Top20Names(tab_top20)
         self.top20_sheet.pack(fill="both", expand=True)
         self.nb.add(tab_top20, text="Top 20 Names")
 
-
-
-    # ====== Filtros toggle ======
-    def _show_filters(self):
-        # si ya está presente, nada
+    # ------------------------------------------------------------------
+    # FILTERS TOGGLE
+    # ------------------------------------------------------------------
+    def _show_filters(self) -> None:
         panes = self.split.panes()
         if str(self.filters_wrap) in panes:
             return
-        # reinsertar arriba y restaurar altura previa si la guardamos
         self.split.insert(0, self.filters_wrap)
         self.split.paneconfigure(self.filters_wrap, weight=1, minsize=120)
         try:
@@ -225,9 +249,8 @@ class MainWindow(tk.Frame):
         except Exception:
             pass
         self.btn_toggle_filters.configure(text="Ocultar filtros ▲", state="normal")
-    
-    def _hide_filters(self):
-        # guarda la posición del sash antes de ocultar
+
+    def _hide_filters(self) -> None:
         try:
             self._last_sash = self.split.sashpos(0)
         except Exception:
@@ -238,24 +261,25 @@ class MainWindow(tk.Frame):
             pass
         self.btn_toggle_filters.configure(text="Mostrar filtros ▼", state="normal")
 
-
-    # ====== Lógica ======
-    def on_generate(self, produktart):
-        """Genera datos usando las fechas seleccionadas y el tipo de producto."""
+    # ------------------------------------------------------------------
+    # LOGIC
+    # ------------------------------------------------------------------
+    def on_generate(self, produktart: str) -> None:
+        """Generate data using the selected date range and product type."""
         von = (self.von_var.get() or "").strip() or None
         bis = (self.bis_var.get() or "").strip() or None
 
-        # Desactivar botones mientras se genera
+        # Disable product buttons while generating
         for btn in (self.btn_alle, self.btn_turbo, self.btn_vanilla):
             btn.config(state="disabled")
         self.update_idletasks()
 
-        # Mostrar loading
+        # Show loading dialog
         self._show_loading("Cargando datos...\nEsto puede tardar unos minutos.")
 
-        def worker():
+        def worker() -> None:
             df = None
-            error = None
+            error: Exception | None = None
             try:
                 df = self.service.generate_fake_transactions(
                     von=von,
@@ -266,12 +290,11 @@ class MainWindow(tk.Frame):
             except Exception as e:
                 error = e
 
-            # Volvemos al hilo principal
             self.after(0, lambda: self._on_generate_finished(df, error, produktart))
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def on_apply_filters(self):
+    def on_apply_filters(self) -> None:
         try:
             spec = self.filters_panel.get_filters()
             self.service.apply_filters(spec)
@@ -281,14 +304,12 @@ class MainWindow(tk.Frame):
             return
         self._refresh_views()
 
-    def on_clear_filters(self):
+    def on_clear_filters(self) -> None:
         self.filters_panel.reset()
-        # No recalcules todo, simplemente aplica filtros vacíos
         self.service.apply_filters({})
         self._refresh_views()
 
-
-    def _refresh_views(self):
+    def _refresh_views(self) -> None:
         df_view = self.service.dataframe_filtered.head(self.MAX_DISPLAY).copy()
         self.table.show_dataframe(df_view)
 
@@ -302,75 +323,71 @@ class MainWindow(tk.Frame):
         self.hsbc_marktanteil.update_plot(df_full)
         self.top20_sheet.update_plot(df_full)
 
-        
-    def _get_split_height(self):
-        """Altura útil del panedwindow para calcular mitad. Usa bbox del pane 0."""
+    # ------------------------------------------------------------------
+    # SPLIT HELPERS
+    # ------------------------------------------------------------------
+    def _get_split_height(self) -> int:
+        """Return useful height for the panedwindow, with fallbacks."""
         try:
-            # bbox del primer sash: (x1, y1, x2, y2)
-            # Pero a veces bbox no está; como fallback usa altura del contenedor 'inner'
             self.update_idletasks()
             h = self.split.winfo_height()
             if h <= 1 and hasattr(self, "inner"):
-                h = self.inner.winfo_height()
-            return max(100, h)  # evita cero
+                h = self.inner.winfo_height()  # type: ignore[attr-defined]
+            return max(100, h)
         except Exception:
-            return 600  # fallback razonable
-    
-    def _set_filters_height_px(self, pixels: int):
-        """Coloca el sash en una posición tal que el pane superior (filtros) mida 'pixels'."""
+            return 600
+
+    def _set_filters_height_px(self, pixels: int) -> None:
+        """Set sash position so that the top pane (filters) has the given height."""
         try:
             self.update_idletasks()
-            # sashpos(0, y) fija la posición vertical del primer separador
             self.split.sashpos(0, max(0, int(pixels)))
         except Exception:
             pass
-    
-    def _show_filters_half(self):
-        """Muestra filtros con ~50% de alto."""
+
+    def _show_filters_half(self) -> None:
+        """Show filters with ~50% height."""
         total_h = self._get_split_height()
         target = int(total_h * 0.5)
-        # guarda última altura “buena”
         self._last_filters_px = target
         self._set_filters_height_px(target)
         self.btn_toggle_filters.configure(text="Ocultar filtros ▲")
-    
-    def _hide_filters_collapse(self):
-        """Colapsa filtros: altura mínima (respeta minsize del pane si existe)."""
-        # intenta respetar minsize configurado; si no, usa 0 + un pequeño margen
+
+    def _hide_filters_collapse(self) -> None:
+        """Collapse filters to their minimum height."""
         try:
             pane_conf = self.split.pane(self.filters_wrap)
             minsize = int(pane_conf.get("minsize", 0))
         except Exception:
             minsize = 0
-        target = minsize  # colapsado
+        target = minsize
         self._set_filters_height_px(target)
         self.btn_toggle_filters.configure(text="Mostrar filtros ▼")
-    
-    def _toggle_filters(self):
-        """Alterna entre colapsado y mitad de página."""
+
+    def _toggle_filters(self) -> None:
+        """Toggle between collapsed and ~half-page filters height."""
         self.update_idletasks()
         current = self.split.sashpos(0)
-        # heurística: si está casi colapsado => expandir a mitad;
-        # si no, colapsar.
         try:
             pane_conf = self.split.pane(self.filters_wrap)
             minsize = int(pane_conf.get("minsize", 0))
         except Exception:
             minsize = 0
-    
-        near_collapsed = (current <= minsize + 4)
+
+        near_collapsed = current <= minsize + 4
         if near_collapsed:
-            # usa la última altura buena si existe; si no, mitad
             target = getattr(self, "_last_filters_px", int(self._get_split_height() * 0.5))
             self._set_filters_height_px(target)
             self.btn_toggle_filters.configure(text="Ocultar filtros ▲")
         else:
-            # guarda la altura actual como “buena” antes de colapsar
             self._last_filters_px = current
             self._hide_filters_collapse()
 
-    def _style_green(self, date_entry):
-        """Aplica fondo verde claro al widget SimpleDateEntry."""
+    # ------------------------------------------------------------------
+    # STYLING & DIALOGS
+    # ------------------------------------------------------------------
+    def _style_green(self, date_entry: DateEntry) -> None:
+        """Apply light green background to the SimpleDateEntry widget."""
         try:
             date_entry.entry.configure(
                 background="#E6F4EA",
@@ -381,10 +398,17 @@ class MainWindow(tk.Frame):
                 activebackground="#C7DFC9",
             )
         except Exception:
-            pass
-        
-    def _show_loading(self, text="Cargando..."):
-        # Si ya existe no crear otra
+            # If we are using tkcalendar.DateEntry instead of SimpleDateEntry
+            try:
+                date_entry.configure(
+                    background="#E6F4EA",
+                    foreground="#000000",
+                )
+            except Exception:
+                pass
+
+    def _show_loading(self, text: str = "Cargando...") -> None:
+        """Show a simple loading window with an indeterminate progress bar."""
         if hasattr(self, "_loading_win") and self._loading_win and self._loading_win.winfo_exists():
             self._loading_label.config(text=text)
             return
@@ -408,77 +432,66 @@ class MainWindow(tk.Frame):
         pb.start(10)
         self._loading_pb = pb
 
-        # Centrar la ventana
         self.update_idletasks()
         try:
             x = self.winfo_rootx() + (self.winfo_width() - win.winfo_width()) // 2
             y = self.winfo_rooty() + (self.winfo_height() - win.winfo_height()) // 2
             win.geometry(f"+{x}+{y}")
-        except:
+        except Exception:
             pass
 
-
-    def _on_generate_finished(self, df, error, produktart):
-        # Cerrar loading
+    def _on_generate_finished(self, df, error: Exception | None, produktart: str) -> None:
+        """Callback executed in the main thread when data generation finishes."""
         win = getattr(self, "_loading_win", None)
         if win and win.winfo_exists():
             try:
                 pb = getattr(self, "_loading_pb", None)
-                if pb: pb.stop()
+                if pb:
+                    pb.stop()
                 win.destroy()
-            except:
+            except Exception:
                 pass
-    
-        # Reactivar botones de producto
+
         for btn in (self.btn_alle, self.btn_turbo, self.btn_vanilla):
             btn.config(state="normal")
-    
-        if error or df is None:
+
+        if error is not None or df is None:
             messagebox.showerror("Fehler", "Die Daten konnten nicht generiert werden.")
             return
-    
-        # --- NUEVO: activar botones de filtros una vez tenemos datos ---
+
         self.btn_apply.config(state="normal")
         self.btn_clear.config(state="normal")
-    
-        # Reconstruir filtros y refrescar vistas
+
         self.filters_panel.build(df)
         self._refresh_all_views_for(produktart)
-    
-        # Popup final tipo "toast" abajo a la derecha
+
         self._show_done_popup("La carga de datos ha terminado correctamente.")
 
-
-
-    def _refresh_all_views_for(self, produktart):
+    def _refresh_all_views_for(self, produktart: str) -> None:
         """
-        Wrapper para compatibilidad con la versión asíncrona de on_generate.
-        De momento solo refresca las vistas usando los datos filtrados actuales.
+        Wrapper for the async on_generate flow.
+        Currently just refreshes views based on the filtered DataFrame.
         """
         self._refresh_views()
-        
-    def _show_done_popup(self, text="Operación completada."):
+
+    def _show_done_popup(self, text: str = "Operación completada.") -> None:
         """
-        Ventanita tipo toast abajo a la derecha, con un botón OK para cerrarla.
-        No restaura la ventana principal si estaba minimizada.
+        Small toast-like window at bottom-right of the screen.
+        Does not restore the main window if it was minimized.
         """
         win = tk.Toplevel(self)
-        win.overrideredirect(True)  # sin borde ni título
+        win.overrideredirect(True)
         win.attributes("-topmost", True)
 
-        # Marco de contenido
         frame = ttk.Frame(win, padding=12)
         frame.pack(fill="both", expand=True)
 
-        # Texto
         label = ttk.Label(frame, text=text, justify="left")
         label.pack(pady=(0, 8))
 
-        # Botón OK (cierra solo el popup)
         btn = ttk.Button(frame, text="OK", command=win.destroy)
         btn.pack(ipadx=10, pady=(0, 4))
 
-        # Posicionar abajo a la derecha
         win.update_idletasks()
         sw = win.winfo_screenwidth()
         sh = win.winfo_screenheight()
@@ -491,10 +504,5 @@ class MainWindow(tk.Frame):
         y = sh - wh - margin_y
         win.geometry(f"+{x}+{y}")
 
-        # No devolver foco, no levantar ventana principal
         win.lift()
         win.focus_force()
-
-
-
-

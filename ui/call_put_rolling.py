@@ -1,8 +1,14 @@
 # ui/call_put_rolling.py
+
+from __future__ import annotations
+
 import tkinter as tk
 from tkinter import ttk
-import pandas as pd
+from typing import Dict, Tuple, Optional
+
 import numpy as np
+import pandas as pd
+from pandas.api.types import is_datetime64_any_dtype
 
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
@@ -10,95 +16,104 @@ import matplotlib.ticker as mticker
 import matplotlib.dates as mdates
 from matplotlib.lines import Line2D
 
-# 🔹 Farben pro Emittent (aus JSON)
 from utils.issuer_colors import get_issuer_color
-from pandas.api.types import is_datetime64_any_dtype
-
 
 
 class CallPutRolling(ttk.Frame):
     """
-    Reiter: 7-Tage-Rolling-Volumen nach Emittent, getrennt nach CALL/PUT.
+    Tab: 7-day rolling volume per issuer, split by CALL / PUT.
 
     Layout:
-      - Linke Sidebar: Emittentenliste mit Checkboxes (Alle AN / AUS)
-      - Mitte: eine Figur mit einem Plot:
-          * 7-Tage-Rolling (TXN_AMT) je Emittent und CALL/PUT
-          * Farbe = Emittent (global aus JSON)
-          * Linienstil = Optionstyp (CALL / PUT / andere)
+      - Left sidebar: issuer list with checkboxes (All ON / OFF)
+      - Center: one figure with a single plot:
+          * 7-day rolling TXN_AMT for each issuer and CALL/PUT
+          * Color = issuer (global palette from JSON)
+          * Line style = option type (CALL / PUT / other)
     """
 
-    def __init__(self, master=None):
+    def __init__(self, master: Optional[tk.Misc] = None) -> None:
         super().__init__(master)
-        self._df = None
+        self._df: Optional[pd.DataFrame] = None
 
-        self._issuers = []
-        self._issuer_vars = {}      # issuer -> BooleanVar
-        self._issuer_checks = {}    # issuer -> Checkbutton
-        self._issuer_colors = {}    # issuer -> Farbe (hex o.ä.)
+        self._issuers: list[str] = []
+        self._issuer_vars: Dict[str, tk.BooleanVar] = {}     # issuer -> BooleanVar
+        self._issuer_checks: Dict[str, tk.Checkbutton] = {}  # issuer -> Checkbutton
+        self._issuer_colors: Dict[str, str] = {}             # issuer -> color
 
-        self._full_range = None     # DatetimeIndex der Tage
-        self._lines_vol = {}        # (issuer, cp) -> Line2D
+        self._full_range: Optional[pd.DatetimeIndex] = None  # daily range
+        self._lines_vol: Dict[Tuple[str, str], Line2D] = {}  # (issuer, call/put) -> Line2D
 
         self._build()
 
-    # ------------- Zeitspalten-Helper --------------
+    # ------------------------------------------------------------------
+    # Time-column helper
+    # ------------------------------------------------------------------
     def _ensure_time_cols(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Stellt sicher, dass DAY aus TRANSACTION_DATE abgeleitet ist.
-    
-        Optimizado:
-        - No copia si no hace falta.
-        - Sólo convierte a datetime si la columna no lo es.
+        """
+        Ensure DAY is derived from TRANSACTION_DATE.
+
+        Optimised:
+        - No unnecessary copies.
+        - Convert to datetime only if needed.
         """
         if df is None or df.empty:
             return df
-    
+
         s = df
         if "TRANSACTION_DATE" not in s.columns:
             return s
-    
-        # Convertir a datetime sólo si hace falta
+
+        # Convert to datetime only if needed
         if not is_datetime64_any_dtype(s["TRANSACTION_DATE"]):
             s = s.copy()
             s["TRANSACTION_DATE"] = pd.to_datetime(
                 s["TRANSACTION_DATE"], errors="coerce"
             )
-    
+
         s = s.dropna(subset=["TRANSACTION_DATE"])
-    
-        # DAY sólo si no existe
+
+        # Build DAY only if it does not exist
         if "DAY" not in s.columns:
             if not s._is_copy:
                 s = s.copy()
             s["DAY"] = s["TRANSACTION_DATE"].dt.normalize()
-    
+
         return s
 
-
-    # ------------- UI build --------------
-    def _build(self):
+    # ------------------------------------------------------------------
+    # UI build
+    # ------------------------------------------------------------------
+    def _build(self) -> None:
         self.columnconfigure(1, weight=1)
         self.rowconfigure(1, weight=1)
 
-        # Sidebar Emittenten
+        # Issuer sidebar
         self.sidebar = tk.Frame(
-            self, bg="#FFF4E5", bd=0, highlightthickness=0, width=140
+            self,
+            bg="#FFF4E5",
+            bd=0,
+            highlightthickness=0,
+            width=140,
         )
         self.sidebar.grid(row=1, column=0, sticky="nsw", padx=(6, 8), pady=(4, 6))
         self.sidebar.grid_propagate(False)
         self._build_sidebar()
 
-        # Plot-Bereich
+        # Plot area
         center = tk.Frame(self, bg="white", bd=0, highlightthickness=0)
         center.grid(row=1, column=1, sticky="nsew", padx=(0, 6), pady=(4, 6))
         center.rowconfigure(1, weight=1)
         center.columnconfigure(0, weight=1)
 
-        # Figur mit einem einzigen Achsenobjekt
+        # Single figure / axis
         self.fig = Figure(figsize=(12, 5.8), dpi=100)
         self.ax_vol = self.fig.add_subplot(1, 1, 1)
-        self.fig.subplots_adjust(left=0.06, right=0.98,
-                                 bottom=0.14, top=0.90)
+        self.fig.subplots_adjust(
+            left=0.06,
+            right=0.98,
+            bottom=0.14,
+            top=0.90,
+        )
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=center)
         self.canvas_widget = self.canvas.get_tk_widget()
@@ -119,10 +134,10 @@ class CallPutRolling(ttk.Frame):
         except Exception:
             pass
 
-    def _build_sidebar(self):
+    def _build_sidebar(self) -> None:
         tk.Label(
             self.sidebar,
-            text="Emittenten",
+            text="Issuers",
             bg="#FFF4E5",
             fg="#7A3E00",
             font=("Segoe UI Semibold", 10),
@@ -133,7 +148,7 @@ class CallPutRolling(ttk.Frame):
 
         tk.Button(
             btns,
-            text="Alle AN",
+            text="All ON",
             command=self._all_on,
             bg="white",
             relief="solid",
@@ -145,7 +160,7 @@ class CallPutRolling(ttk.Frame):
 
         tk.Button(
             btns,
-            text="Alle AUS",
+            text="All OFF",
             command=self._all_off,
             bg="white",
             relief="solid",
@@ -155,7 +170,7 @@ class CallPutRolling(ttk.Frame):
             cursor="hand2",
         ).pack(fill="x", pady=(0, 4))
 
-        # Scrollbare Emittentenliste
+        # Scrollable issuer list
         list_container = tk.Frame(self.sidebar, bg="#FFF4E5")
         list_container.pack(fill="both", expand=True, padx=4, pady=(2, 6))
 
@@ -167,14 +182,18 @@ class CallPutRolling(ttk.Frame):
             width=128,
         )
         vsb = ttk.Scrollbar(
-            list_container, orient="vertical", command=self._issuer_canvas.yview
+            list_container,
+            orient="vertical",
+            command=self._issuer_canvas.yview,
         )
         self._issuer_canvas.configure(yscrollcommand=vsb.set)
         vsb.pack(side="right", fill="y")
 
         self._issuer_inner = tk.Frame(self._issuer_canvas, bg="#FFF4E5")
         self._issuer_canvas.create_window(
-            (0, 0), window=self._issuer_inner, anchor="nw"
+            (0, 0),
+            window=self._issuer_inner,
+            anchor="nw",
         )
         self._issuer_inner.bind(
             "<Configure>",
@@ -184,31 +203,33 @@ class CallPutRolling(ttk.Frame):
         )
         self._issuer_canvas.pack(side="left", fill="both", expand=True)
 
-    # ------------- API --------------
-    def update_plot(self, df: pd.DataFrame):
-        """Nimmt gefiltertes DataFrame entgegen und zeichnet den Reiter neu."""
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+    def update_plot(self, df: pd.DataFrame) -> None:
+        """Receive filtered DataFrame and redraw the sheet."""
         self._df = df
         self._draw_all()
 
-    # ------------- Format-Helper --------------
-    def _format_volume_tick(self, x, pos):
+    # ------------------------------------------------------------------
+    # Formatting helpers
+    # ------------------------------------------------------------------
+    def _format_volume_tick(self, x, pos) -> str:
         """
-        Format für Volumen-Achse:
-          - < 1 Mio:  Standard mit Tausender-Trennzeichen (12,345)
-          - >= 1 Mio: in Mio, z.B. 1M, 1,1M, 10M
+        Format for volume axis:
+          - < 1M : standard with thousands separators (12,345)
+          - >= 1M: in millions, e.g. 1M, 1.1M, 10M
         """
         abs_x = abs(x)
         if abs_x >= 1_000_000:
             value = x / 1_000_000.0
             if abs_x >= 10_000_000:
                 return f"{value:,.0f}M"
-            else:
-                return f"{value:,.1f}M"
-        else:
-            return f"{x:,.0f}"
+            return f"{value:,.1f}M"
+        return f"{x:,.0f}"
 
-    def _set_dynamic_ylim(self):
-        """Passt die Y-Achse an die aktuell vorhandenen Linien an."""
+    def _set_dynamic_ylim(self) -> None:
+        """Adjust Y-axis limits based on currently visible lines."""
         vals = []
         for ln in self._lines_vol.values():
             y = ln.get_ydata()
@@ -225,9 +246,11 @@ class CallPutRolling(ttk.Frame):
             ymax = 1.0
         self.ax_vol.set_ylim(0, ymax * 1.1)
 
-    # ------------- Zeichnen --------------
-    def _draw_all(self):
-        # Achse und Strukturen leeren
+    # ------------------------------------------------------------------
+    # Main drawing
+    # ------------------------------------------------------------------
+    def _draw_all(self) -> None:
+        # Clear axis and state
         self.ax_vol.clear()
         self._issuer_vars.clear()
         self._issuer_checks.clear()
@@ -243,7 +266,7 @@ class CallPutRolling(ttk.Frame):
             self.ax_vol.text(
                 0.5,
                 0.5,
-                "Keine Daten",
+                "No data",
                 ha="center",
                 va="center",
                 transform=self.ax_vol.transAxes,
@@ -255,9 +278,14 @@ class CallPutRolling(ttk.Frame):
 
         required = {"TRANSACTION_DATE", "TXN_AMT", "CALL_OPTION", "ISSUER_NAME"}
         if not required.issubset(s.columns):
-            msg = "Fehlende Spalten: " + ", ".join(sorted(required - set(s.columns)))
+            msg = "Missing columns: " + ", ".join(sorted(required - set(s.columns)))
             self.ax_vol.text(
-                0.5, 0.5, msg, ha="center", va="center", transform=self.ax_vol.transAxes
+                0.5,
+                0.5,
+                msg,
+                ha="center",
+                va="center",
+                transform=self.ax_vol.transAxes,
             )
             self.canvas.draw_idle()
             return
@@ -265,11 +293,11 @@ class CallPutRolling(ttk.Frame):
         s["CALL_OPTION"] = s["CALL_OPTION"].astype(str)
         s["ISSUER_NAME"] = s["ISSUER_NAME"].astype(str)
 
-        # Emittenten & durchgängiger Datumsbereich
+        # Issuers & continuous date range
         self._issuers = sorted(s["ISSUER_NAME"].unique())
         self._full_range = pd.date_range(s["DAY"].min(), s["DAY"].max(), freq="D")
 
-        # Sidebar Emittenten
+        # Sidebar issuers
         for iss in self._issuers:
             var = tk.BooleanVar(value=False)
             cb = tk.Checkbutton(
@@ -288,14 +316,14 @@ class CallPutRolling(ttk.Frame):
             self._issuer_vars[iss] = var
             self._issuer_checks[iss] = cb
 
-        # CALL/PUT-Ausprägungen
+        # CALL/PUT values (as strings)
         callput_values = sorted(s["CALL_OPTION"].unique())
 
-        # Linien generieren
+        # Build rolling lines
         for iss in self._issuers:
             color = get_issuer_color(iss)
             if color is None:
-                # Fallback, falls Emittent nicht im JSON ist
+                # Fallback if issuer is not present in JSON
                 color = self.ax_vol._get_lines.get_next_color()
             self._issuer_colors[iss] = color
 
@@ -309,16 +337,15 @@ class CallPutRolling(ttk.Frame):
                     .groupby("DAY", sort=False)["TXN_AMT"]
                     .sum()
                     .reindex(self._full_range)
-                    .fillna(0.0)  # Tage ohne Trades => Volumen 0
+                    .fillna(0.0)
                 )
 
-                # 7-Tage-Rolling mit 0 für fehlende Tage
+                # 7-day rolling mean
                 roll_vol = (
                     pd.Series(daily.values, index=self._full_range)
                     .rolling(window=7, min_periods=1)
                     .mean()
                 )
-
 
                 color_line = self._issuer_colors[iss]
                 ls = self._linestyle_for_callput(cp)
@@ -334,7 +361,7 @@ class CallPutRolling(ttk.Frame):
                 ln_v.set_visible(False)
                 self._lines_vol[(iss, cp)] = ln_v
 
-        # Checkboxes farblich nach Emittent einfärben
+        # Color sidebar checkbuttons according to issuer color
         for iss, cb in self._issuer_checks.items():
             color = get_issuer_color(iss, fallback=self._issuer_colors.get(iss))
             if color:
@@ -347,19 +374,21 @@ class CallPutRolling(ttk.Frame):
                 except Exception:
                     pass
 
-        # Achsenformat
+        # Axis format
         self._format_vol_axis()
 
-        # Dynamische Y-Achse
+        # Dynamic Y-axis
         self._set_dynamic_ylim()
 
-        # Legenden: Emittenten (Farben) und Typen (Linienstil)
+        # Legends: issuers (colors) and types (line styles)
         self._build_legends(callput_values)
 
         self.canvas.draw_idle()
 
-    # ---------- Achsenformat ----------
-    def _format_vol_axis(self):
+    # ------------------------------------------------------------------
+    # Axis formatting
+    # ------------------------------------------------------------------
+    def _format_vol_axis(self) -> None:
         locator = mdates.AutoDateLocator()
         formatter = mdates.AutoDateFormatter(locator)
         self.ax_vol.xaxis.set_major_locator(locator)
@@ -368,17 +397,19 @@ class CallPutRolling(ttk.Frame):
             mticker.FuncFormatter(self._format_volume_tick)
         )
         self.ax_vol.grid(True, alpha=0.3)
-        self.ax_vol.set_title("7-Tage-Rolling-Volumen nach Emittent und CALL/PUT")
+        self.ax_vol.set_title("7-Day Rolling Volume by Issuer and CALL/PUT")
         self.ax_vol.set_xlabel("")
         self.ax_vol.set_ylabel("")
         self.ax_vol.tick_params(axis="x", rotation=20)
         self.ax_vol.tick_params(axis="y", rotation=0)
 
-        # X-Achse auf den gesamten Datenbereich setzen
+        # Full x-range
         if self._full_range is not None and len(self._full_range) > 0:
             self.ax_vol.set_xlim(self._full_range.min(), self._full_range.max())
 
-    # ---------- Linienstile ----------
+    # ------------------------------------------------------------------
+    # Line styles for call/put
+    # ------------------------------------------------------------------
     @staticmethod
     def _linestyle_for_callput(cp_value: str) -> str:
         key = str(cp_value).upper()
@@ -386,11 +417,13 @@ class CallPutRolling(ttk.Frame):
             return "-"
         if key in ("PUT", "P"):
             return "--"
-        return ":"  # andere Typen
+        return ":"  # other types
 
-    # ---------- Legenden ----------
-    def _build_legends(self, callput_values):
-        # Legende für Emittenten (Farben)
+    # ------------------------------------------------------------------
+    # Legends
+    # ------------------------------------------------------------------
+    def _build_legends(self, callput_values) -> None:
+        # Issuer legend (colors)
         issuer_handles = []
         issuer_labels = []
         for iss in self._issuers:
@@ -401,11 +434,11 @@ class CallPutRolling(ttk.Frame):
             issuer_handles.append(h)
             issuer_labels.append(iss)
 
-        # Legende für Typ (CALL/PUT) – Linienstil
+        # Type legend (line styles)
         style_handles = []
         style_labels = []
-
         types_seen = set()
+
         for cp in callput_values:
             key = str(cp).upper()
             if key in ("CALL", "C"):
@@ -424,12 +457,12 @@ class CallPutRolling(ttk.Frame):
             style_handles.append(h)
             style_labels.append(normalized)
 
-        # Zwei getrennte Legenden: links Emittenten, rechts Typ
+        # Two legends: left = issuers, right = types
         if issuer_handles:
             leg1 = self.ax_vol.legend(
                 issuer_handles,
                 issuer_labels,
-                title="Emittenten",
+                title="Issuers",
                 loc="upper left",
                 fontsize=8,
             )
@@ -439,28 +472,30 @@ class CallPutRolling(ttk.Frame):
             self.ax_vol.legend(
                 style_handles,
                 style_labels,
-                title="Typ",
+                title="Type",
                 loc="upper right",
                 fontsize=8,
             )
 
-    # ---------- Toggles ----------
-    def _toggle_issuer(self, issuer: str):
+    # ------------------------------------------------------------------
+    # Toggles
+    # ------------------------------------------------------------------
+    def _toggle_issuer(self, issuer: str) -> None:
         on = bool(self._issuer_vars[issuer].get())
         for (iss, cp), ln in list(self._lines_vol.items()):
             if iss == issuer:
                 ln.set_visible(on)
-        # Y-Limits nach Sichtbarkeit neu setzen
+        # Update Y-limits after visibility change
         self._set_dynamic_ylim()
         self.canvas.draw_idle()
 
-    def _all_on(self):
+    def _all_on(self) -> None:
         for iss, var in self._issuer_vars.items():
             if not var.get():
                 var.set(True)
                 self._toggle_issuer(iss)
 
-    def _all_off(self):
+    def _all_off(self) -> None:
         for iss, var in self._issuer_vars.items():
             if var.get():
                 var.set(False)

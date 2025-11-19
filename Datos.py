@@ -4,24 +4,53 @@ from datetime import datetime, timedelta, date
 
 
 ISSUERS = np.array(["HSBC", "DB", "CITI", "BNPP", "UBS", "JPM", "GS", "MS"])
-UNDERLYING_CODES = np.array([
-    "AAPL", "MSFT", "SPX", "EURUSD", "XAUUSD",
-    "TSLA", "NDAQ", "AMZN", "DAX", "CAC40","NASDAQ","Hensholdt","RWE","Rheinmetal",
-])
+UNDERLYING_CODES = np.array(
+    [
+        "AAPL",
+        "MSFT",
+        "SPX",
+        "EURUSD",
+        "XAUUSD",
+        "TSLA",
+        "NDAQ",
+        "AMZN",
+        "DAX",
+        "CAC40",
+        "NASDAQ",
+        "Hensholdt",
+        "RWE",
+        "Rheinmetal",
+    ]
+)
 UNDERLYING_TYPES = np.array(["Equity", "Index", "FX", "Commodity"])
 
-# TIPOS DE PRODUCTO (Type)
+# Product types (TYPE column)
 PRODUCT_TYPES_ALL = np.array(["Vanilla", "Turbo", "Warrant", "Certificate", "CFD"])
 
 
-def _parse_date(value, default=None) -> datetime:
-    """Convierte VON/BIS a datetime sin hora. Si es None o vacío, devuelve default."""
+def _parse_date(value, default: datetime | None = None) -> datetime:
+    """
+    Normalize input to a date-only datetime.
+
+    Parameters
+    ----------
+    value : Any
+        String / date / datetime / None.
+    default : datetime | None
+        Value to use if parsing fails or value is None/empty.
+
+    Returns
+    -------
+    datetime
+        Date-only datetime (time stripped).
+    """
     if value is None or value == "":
         return default
     if isinstance(value, datetime):
         return value.replace(hour=0, minute=0, second=0, microsecond=0)
     if isinstance(value, date):
         return datetime(value.year, value.month, value.day)
+
     try:
         dt = pd.to_datetime(value)
         return datetime(dt.year, dt.month, dt.day)
@@ -32,28 +61,30 @@ def _parse_date(value, default=None) -> datetime:
 def create_fake_transactions(
     von=None,
     bis=None,
-    produktart="ALLE",
+    produktart: str = "ALLE",
     n_rows: int = 1_000_000,
 ) -> pd.DataFrame:
     """
-    Genera un DataFrame de transacciones sintéticas.
+    Generate a synthetic transactions DataFrame.
 
-    Parámetros
+    Parameters
     ----------
     von : str | date | datetime | None
-        Fecha de inicio (incluida). Ej: '2025-01-01'. Si None → hoy - 90 días.
+        Start date (inclusive). Example: '2025-01-01'.
+        If None → today - 90 days.
     bis : str | date | datetime | None
-        Fecha de fin (incluida). Si None → hoy.
+        End date (inclusive). If None → today.
     produktart : {'ALLE', 'TURBO', 'VANILLA'}
-        - 'ALLE'    -> mezcla todos los TYPE de PRODUCT_TYPES_ALL
-        - 'TURBO'   -> sólo TYPE = 'Turbo'
-        - 'VANILLA' -> sólo TYPE = 'Vanilla'
+        - 'ALLE'    -> mix all TYPE values from PRODUCT_TYPES_ALL
+        - 'TURBO'   -> only TYPE = 'Turbo'
+        - 'VANILLA' -> only TYPE = 'Vanilla'
     n_rows : int
-        Número de filas a generar.
+        Number of rows to generate.
 
-    Devuelve
-    --------
-    DataFrame con columnas:
+    Returns
+    -------
+    pandas.DataFrame
+        Columns:
         ISIN, UND_ISIN, NAME, ISSUER_NAME, UND_TYPE,
         NBR_OF_TRADES, CALL_OPTION, NBR_OF_UNITS,
         TRANSACTION_DATE, TXN_AMT, EXPIRY, TYPE, RATIO, STRIKE,
@@ -61,13 +92,13 @@ def create_fake_transactions(
     """
     rng = np.random.default_rng()
 
-    # ----- rango de fechas -----
+    # ----- date range -----
     today = datetime.today().replace(hour=0, minute=0, second=0, microsecond=0)
     end_dt = _parse_date(bis, default=today)
     start_dt = _parse_date(von, default=end_dt - timedelta(days=90))
 
     if start_dt > end_dt:
-        # por si el usuario mete el rango del revés
+        # In case user swaps the range
         start_dt, end_dt = end_dt, start_dt
 
     date_range = pd.date_range(start_dt, end_dt, freq="D")
@@ -76,7 +107,7 @@ def create_fake_transactions(
 
     n = int(n_rows)
 
-    # ----- tipos permitidos según produktart -----
+    # ----- allowed types based on produktart -----
     produktart_norm = (produktart or "ALLE").upper()
     if produktart_norm == "TURBO":
         allowed_types = np.array(["Turbo"])
@@ -85,20 +116,18 @@ def create_fake_transactions(
     else:
         allowed_types = PRODUCT_TYPES_ALL
 
-    # ----- fechas de transacción / expiración -----
+    # ----- transaction / expiry dates -----
     trx_dates = rng.choice(date_range, size=n)
     expiry = trx_dates + pd.to_timedelta(rng.integers(30, 365, size=n), unit="D")
 
-    # ----- ISINs vectorizados (rápidos) -----
-    # Generamos números [0, 10^10) y los formateamos como 10 dígitos + prefijo "DE"
+    # ----- ISINs (vectorized, fast) -----
     nums1 = rng.integers(0, 10**10, size=n, dtype=np.int64)
     isin = np.char.add("DE", np.char.zfill(nums1.astype(str), 10))
 
     nums2 = rng.integers(0, 10**10, size=n, dtype=np.int64)
     und_isin = np.char.add("DE", np.char.zfill(nums2.astype(str), 10))
 
-    # ----- resto de campos, todo vectorizado -----
-    # NAME = código underlying + sufijo textual
+    # ----- remaining vectorized fields -----
     suffixes = np.array([" Call", " Put", " Bonus", " Reverse"])
     names = np.char.add(
         rng.choice(UNDERLYING_CODES, size=n),
@@ -129,14 +158,14 @@ def create_fake_transactions(
             "NBR_OF_UNITS": units,
             "TRANSACTION_DATE": pd.to_datetime(trx_dates),
             "TXN_AMT": txn_amt,
-            "EXPIRY": expiry,  # tipo datetime64; si quieres str: expiry.date.astype(str)
+            "EXPIRY": expiry,
             "TYPE": ptype,
             "RATIO": ratio,
             "STRIKE": strike,
         }
     )
 
-    # ----- columnas de periodo como en Datos.py -----
+    # Period columns
     df["DAY"] = df["TRANSACTION_DATE"].dt.normalize()
     df["WEEK"] = df["TRANSACTION_DATE"].dt.to_period("W-MON").dt.start_time
     df["MONTH"] = df["TRANSACTION_DATE"].dt.to_period("M").dt.start_time

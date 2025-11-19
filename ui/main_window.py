@@ -15,6 +15,7 @@ from ui.top20_names import Top20Names
 from ui.simple_calendar import SimpleDateEntry as DateEntry
 import traceback
 from datetime import date, timedelta  
+import threading
 
 
 class MainWindow(tk.Frame):
@@ -244,51 +245,31 @@ class MainWindow(tk.Frame):
         von = (self.von_var.get() or "").strip() or None
         bis = (self.bis_var.get() or "").strip() or None
 
-        # Desactivar botones de entrada mientras se genera
+        # Desactivar botones mientras se genera
         for btn in (self.btn_alle, self.btn_turbo, self.btn_vanilla):
             btn.config(state="disabled")
         self.update_idletasks()
 
-        try:
-            df = self.service.generate_fake_transactions(
-                von=von,
-                bis=bis,
-                produktart=produktart,
-                n_rows=1_000_000,   # ajusta si quieres menos filas
-            )
-        except Exception:
-            traceback.print_exc()
-            messagebox.showerror("Fehler", "Die Daten konnten nicht generiert werden.")
-            return
-        finally:
-            for btn in (self.btn_alle, self.btn_turbo, self.btn_vanilla):
-                btn.config(state="normal")
+        # Mostrar loading
+        self._show_loading("Cargando datos...\nEsto puede tardar unos minutos.")
 
-        # Reconstruir filtros y refrescar todas las vistas
-        self.filters_panel.build(df)
-        self._show_filters()
-    
-        # Activar botones
-        self.btn_apply.config(state="normal")
-        self.btn_clear.config(state="normal")
-    
-        # 🔹 Simular clic automático en el botón "Borrar filtros"
-        try:
-            # Si el botón tiene asignado un comando (normalmente _on_clear_clicked)
-            if hasattr(self.btn_clear, "invoke"):
-                self.btn_clear.invoke()  # esto ejecuta el mismo callback del botón
-            else:
-                # Fallback si no existe invoke (raro)
-                if hasattr(self.filters_panel, "_on_clear_clicked"):
-                    self.filters_panel._on_clear_clicked()
-        except Exception as e:
-            print(f"[on_generate] Error al ejecutar auto-clear: {e}")
-    
-        # 🔹 Finalmente refrescar la vista principal
-        self._refresh_views()
+        def worker():
+            df = None
+            error = None
+            try:
+                df = self.service.generate_fake_transactions(
+                    von=von,
+                    bis=bis,
+                    produktart=produktart,
+                    n_rows=1_000_000,
+                )
+            except Exception as e:
+                error = e
 
+            # Volvemos al hilo principal
+            self.after(0, lambda: self._on_generate_finished(df, error, produktart))
 
-
+        threading.Thread(target=worker, daemon=True).start()
 
     def on_apply_filters(self):
         try:
@@ -401,3 +382,119 @@ class MainWindow(tk.Frame):
             )
         except Exception:
             pass
+        
+    def _show_loading(self, text="Cargando..."):
+        # Si ya existe no crear otra
+        if hasattr(self, "_loading_win") and self._loading_win and self._loading_win.winfo_exists():
+            self._loading_label.config(text=text)
+            return
+
+        win = tk.Toplevel(self)
+        self._loading_win = win
+        win.title("Cargando")
+        win.geometry("320x110")
+        win.configure(bg="white")
+        win.resizable(False, False)
+
+        frame = ttk.Frame(win, padding=12)
+        frame.pack(fill="both", expand=True)
+
+        lbl = ttk.Label(frame, text=text, justify="center")
+        lbl.pack(pady=(0, 10))
+        self._loading_label = lbl
+
+        pb = ttk.Progressbar(frame, mode="indeterminate", length=260)
+        pb.pack()
+        pb.start(10)
+        self._loading_pb = pb
+
+        # Centrar la ventana
+        self.update_idletasks()
+        try:
+            x = self.winfo_rootx() + (self.winfo_width() - win.winfo_width()) // 2
+            y = self.winfo_rooty() + (self.winfo_height() - win.winfo_height()) // 2
+            win.geometry(f"+{x}+{y}")
+        except:
+            pass
+
+
+    def _on_generate_finished(self, df, error, produktart):
+        # Cerrar loading
+        win = getattr(self, "_loading_win", None)
+        if win and win.winfo_exists():
+            try:
+                pb = getattr(self, "_loading_pb", None)
+                if pb: pb.stop()
+                win.destroy()
+            except:
+                pass
+    
+        # Reactivar botones de producto
+        for btn in (self.btn_alle, self.btn_turbo, self.btn_vanilla):
+            btn.config(state="normal")
+    
+        if error or df is None:
+            messagebox.showerror("Fehler", "Die Daten konnten nicht generiert werden.")
+            return
+    
+        # --- NUEVO: activar botones de filtros una vez tenemos datos ---
+        self.btn_apply.config(state="normal")
+        self.btn_clear.config(state="normal")
+    
+        # Reconstruir filtros y refrescar vistas
+        self.filters_panel.build(df)
+        self._refresh_all_views_for(produktart)
+    
+        # Popup final tipo "toast" abajo a la derecha
+        self._show_done_popup("La carga de datos ha terminado correctamente.")
+
+
+
+    def _refresh_all_views_for(self, produktart):
+        """
+        Wrapper para compatibilidad con la versión asíncrona de on_generate.
+        De momento solo refresca las vistas usando los datos filtrados actuales.
+        """
+        self._refresh_views()
+        
+    def _show_done_popup(self, text="Operación completada."):
+        """
+        Ventanita tipo toast abajo a la derecha, con un botón OK para cerrarla.
+        No restaura la ventana principal si estaba minimizada.
+        """
+        win = tk.Toplevel(self)
+        win.overrideredirect(True)  # sin borde ni título
+        win.attributes("-topmost", True)
+
+        # Marco de contenido
+        frame = ttk.Frame(win, padding=12)
+        frame.pack(fill="both", expand=True)
+
+        # Texto
+        label = ttk.Label(frame, text=text, justify="left")
+        label.pack(pady=(0, 8))
+
+        # Botón OK (cierra solo el popup)
+        btn = ttk.Button(frame, text="OK", command=win.destroy)
+        btn.pack(ipadx=10, pady=(0, 4))
+
+        # Posicionar abajo a la derecha
+        win.update_idletasks()
+        sw = win.winfo_screenwidth()
+        sh = win.winfo_screenheight()
+        ww = win.winfo_width()
+        wh = win.winfo_height()
+
+        margin_x = 20
+        margin_y = 60
+        x = sw - ww - margin_x
+        y = sh - wh - margin_y
+        win.geometry(f"+{x}+{y}")
+
+        # No devolver foco, no levantar ventana principal
+        win.lift()
+        win.focus_force()
+
+
+
+

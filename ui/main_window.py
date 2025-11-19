@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-from tkcalendar import DateEntry    
+#from tkcalendar import DateEntry    
 from services.data_service import DataService
 from ui.filters_panel import FiltersPanel
 from ui.table_widget import TableFrame
@@ -12,6 +12,7 @@ from ui.call_put_share import CallPutShare
 from ui.call_put_rolling import CallPutRolling
 from ui.hsbc_marktanteil import HSBCMarktanteil
 from ui.top20_names import Top20Names
+from ui.simple_calendar import SimpleDateEntry as DateEntry
 import traceback
 from datetime import date, timedelta  
 
@@ -41,14 +42,12 @@ class MainWindow(tk.Frame):
         inner = ttk.Frame(content, style="CardInner.TFrame")
         inner.pack(fill="both", expand=True)
         
-        
-        
 
         # === Actions Row: fechas + tipo de producto ===
         actions = ttk.Frame(inner, style="Actions.TFrame")
         actions.pack(side="top", fill="x", padx=10, pady=8)
         
-        # Fechas con tkcalendar (Von / Bis)
+        # Fechas con DateEntry (tkcalendar o SimpleDateEntry)
         ttk.Label(actions, text="Von:").pack(side="left")
         self.von_var = tk.StringVar()
         self.von_date = DateEntry(
@@ -57,6 +56,7 @@ class MainWindow(tk.Frame):
             date_pattern="yyyy-mm-dd",
             width=12,
         )
+        self._style_green(self.von_date)   # <<< NUEVO
         self.von_date.pack(side="left", padx=(4, 10))
         
         ttk.Label(actions, text="Bis:").pack(side="left")
@@ -67,12 +67,14 @@ class MainWindow(tk.Frame):
             date_pattern="yyyy-mm-dd",
             width=12,
         )
+        self._style_green(self.bis_date)   # <<< NUEVO
         self.bis_date.pack(side="left", padx=(4, 16))
         
         # Valores por defecto: últimos 90 días
         today = date.today()
         self.bis_date.set_date(today)
         self.von_date.set_date(today - timedelta(days=90))
+
         
         # Botones de generación (input) en lila claro
         btn_input_kwargs = dict(
@@ -386,3 +388,16 @@ class MainWindow(tk.Frame):
             self._last_filters_px = current
             self._hide_filters_collapse()
 
+    def _style_green(self, date_entry):
+        """Aplica fondo verde claro al widget SimpleDateEntry."""
+        try:
+            date_entry.entry.configure(
+                background="#E6F4EA",
+                foreground="#000000",
+            )
+            date_entry.btn.configure(
+                background="#E6F4EA",
+                activebackground="#C7DFC9",
+            )
+        except Exception:
+            pass

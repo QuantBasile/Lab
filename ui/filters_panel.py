@@ -6,12 +6,17 @@ import math
 import pandas as pd
 from pandas.api.types import is_numeric_dtype, is_datetime64_any_dtype, is_bool_dtype
 
-# --- Opcional: calendario ---
-try:
-    from tkcalendar import DateEntry
-    HAS_TKCAL = True
-except Exception:
-    HAS_TKCAL = False
+
+# --- Calendario: tkcalendar si existe, si no nuestro SimpleDateEntry ---
+#try:
+#    from tkcalendar import DateEntry  # type: ignore
+#    HAS_TKCAL = True
+#except Exception:
+#    from ui.simple_calendar import SimpleDateEntry as DateEntry
+#    HAS_TKCAL = True  # tenemos calendar propio igualmente
+
+from ui.simple_calendar import SimpleDateEntry as DateEntry
+HAS_TKCAL = True  # tenemos calendar propio igualmente
 
 
 class FiltersPanel(ttk.Frame):
@@ -403,32 +408,29 @@ class FiltersPanel(ttk.Frame):
         ttk.Label(row1, text="Desde", style="White.TLabel").pack(side="left", padx=(0, 6))
 
         start_var = tk.StringVar()
-        if HAS_TKCAL:
-            w1 = DateEntry(row1, width=12, date_pattern="yyyy-mm-dd", textvariable=start_var,
-                           background="#d1fae5", foreground="#000", bordercolor="#10b981",
-                           headersbackground="#a7f3d0", normalbackground="#ffffff")
-        else:
-            w1 = ttk.Entry(row1, textvariable=start_var, width=12, style="Filt.TEntry")
+        w1 = DateEntry(row1, width=12, date_pattern="yyyy-mm-dd", textvariable=start_var)
         w1.pack(side="left")
 
         row2 = ttk.Frame(parent, style="White.TFrame"); row2.pack(anchor="w", pady=(8, 0))
         ttk.Label(row2, text="Hasta", style="White.TLabel").pack(side="left", padx=(0, 6))
 
         end_var = tk.StringVar()
-        if HAS_TKCAL:
-            w2 = DateEntry(row2, width=12, date_pattern="yyyy-mm-dd", textvariable=end_var,
-                           background="#d1fae5", foreground="#000", bordercolor="#10b981",
-                           headersbackground="#a7f3d0", normalbackground="#ffffff")
-        else:
-            w2 = ttk.Entry(row2, textvariable=end_var, width=12, style="Filt.TEntry")
+        w2 = DateEntry(row2, width=12, date_pattern="yyyy-mm-dd", textvariable=end_var)
         w2.pack(side="left")
 
         # Botón Limpiar (blanco)
-        tk.Button(parent, text="Limpiar",
-                  bg=self.WHITE, activebackground=self.WHITE,
-                  relief="solid", bd=1, padx=10, pady=2, cursor="hand2",
-                  command=lambda: (start_var.set(""), end_var.set(""))
-                  ).pack(anchor="w", pady=(10, 0))
+        tk.Button(
+            parent,
+            text="Limpiar",
+            bg=self.WHITE,
+            activebackground=self.WHITE,
+            relief="solid",
+            bd=1,
+            padx=10,
+            pady=2,
+            cursor="hand2",
+            command=lambda: (start_var.set(""), end_var.set("")),
+        ).pack(anchor="w", pady=(10, 0))
 
         self._controls[col] = {"type": "date", "start": start_var, "end": end_var}
 

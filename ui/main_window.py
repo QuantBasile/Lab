@@ -18,6 +18,16 @@ from ui.hsbc_marktanteil import HSBCMarktanteil
 from ui.top20_names import Top20Names
 from ui.simple_calendar import SimpleDateEntry as DateEntry
 
+# ---- QUICK SHEET CONFIG -------------------------------------
+# Sheets that are disabled (not created, not updated)
+DISABLED_SHEETS = {
+    "CALL/PUT rolling 7d",
+    "Call/Put Share",
+    "Volume Summary",
+    # "HSBC Market Share",
+}
+# ---------------------------------------------------------------
+
 
 class MainWindow(tk.Frame):
     """
@@ -62,8 +72,8 @@ class MainWindow(tk.Frame):
         actions = ttk.Frame(inner, style="Actions.TFrame")
         actions.pack(side="top", fill="x", padx=10, pady=8)
 
-        # ----- Date range: Von / Bis -----
-        ttk.Label(actions, text="Von:").pack(side="left")
+        # ----- Date range: From / To -----
+        ttk.Label(actions, text="From:").pack(side="left")
         self.von_var = tk.StringVar()
         self.von_date = DateEntry(
             actions,
@@ -74,7 +84,7 @@ class MainWindow(tk.Frame):
         self._style_green(self.von_date)
         self.von_date.pack(side="left", padx=(4, 10))
 
-        ttk.Label(actions, text="Bis:").pack(side="left")
+        ttk.Label(actions, text="To:").pack(side="left")
         self.bis_var = tk.StringVar()
         self.bis_date = DateEntry(
             actions,
@@ -103,7 +113,7 @@ class MainWindow(tk.Frame):
 
         self.btn_alle = tk.Button(
             actions,
-            text="Alle",
+            text="All",
             command=lambda: self.on_generate("ALLE"),
             **btn_input_kwargs,
         )
@@ -128,7 +138,7 @@ class MainWindow(tk.Frame):
         # Toggle filters button
         self.btn_toggle_filters = tk.Button(
             actions,
-            text="Ocultar filtros ▲",
+            text="Hide filters ▲",
             bg="#e0ecff",
             fg="#0b0b0b",
             activebackground="#cfe2ff",
@@ -143,7 +153,7 @@ class MainWindow(tk.Frame):
         # Apply / Clear filters
         self.btn_apply = tk.Button(
             actions,
-            text="Aplicar filtros",
+            text="Apply filters",
             bg="#2563eb",
             fg="white",
             activebackground="#1d4ed8",
@@ -158,7 +168,7 @@ class MainWindow(tk.Frame):
 
         self.btn_clear = tk.Button(
             actions,
-            text="Borrar filtros",
+            text="Clear filters",
             bg="#e0ecff",
             fg="#0b0b0b",
             activebackground="#cfe2ff",
@@ -192,42 +202,50 @@ class MainWindow(tk.Frame):
         tab_table = ttk.Frame(self.nb)
         self.table = TableFrame(tab_table)
         self.table.pack(fill="both", expand=True)
-        self.nb.add(tab_table, text="Tabla")
+        self.nb.add(tab_table, text="Table")
 
         tab_volume = ttk.Frame(self.nb)
         self.volume_sheet = VolumeSheet(tab_volume)
         self.volume_sheet.pack(fill="both", expand=True)
-        self.nb.add(tab_volume, text="Volumen")
+        self.nb.add(tab_volume, text="Volume")
 
-        tab_volsum = ttk.Frame(self.nb, style="CardInner.TFrame")
-        self.volume_summary = VolumeSummary(tab_volsum)
-        self.volume_summary.pack(side="top", fill="both", expand=True)
-        self.nb.add(tab_volsum, text="Volumen-summary")
+        # OPTIONAL: Volume Summary
+        if "Volume Summary" not in DISABLED_SHEETS:
+            tab_vol_summary = ttk.Frame(self.nb)
+            self.volume_summary = VolumeSummary(tab_vol_summary)
+            self.volume_summary.pack(fill="both", expand=True)
+            self.nb.add(tab_vol_summary, text="Volume Summary")
 
         tab_volpct = ttk.Frame(self.nb, style="CardInner.TFrame")
         self.volume_percentage = VolumePercentage(tab_volpct)
         self.volume_percentage.pack(side="top", fill="both", expand=True)
-        self.nb.add(tab_volpct, text="Volumen-%")
+        self.nb.add(tab_volpct, text="Volume %")
 
         tab_vtable = ttk.Frame(self.nb, style="CardInner.TFrame")
         self.volume_table = VolumeTable(tab_vtable)
         self.volume_table.pack(side="top", fill="both", expand=True)
-        self.nb.add(tab_vtable, text="volumen_tabla")
+        self.nb.add(tab_vtable, text="Volume table")
 
-        tab_callput = ttk.Frame(self.nb, style="CardInner.TFrame")
-        self.call_put_share = CallPutShare(tab_callput)
-        self.call_put_share.pack(side="top", fill="both", expand=True)
-        self.nb.add(tab_callput, text="CALL/PUT share")
+        # OPTIONAL: Call/Put Share
+        if "Call/Put Share" not in DISABLED_SHEETS:
+            tab_cp_share = ttk.Frame(self.nb)
+            self.call_put_share = CallPutShare(tab_cp_share)
+            self.call_put_share.pack(fill="both", expand=True)
+            self.nb.add(tab_cp_share, text="Call/Put Share")
 
-        tab_cproll = ttk.Frame(self.nb, style="CardInner.TFrame")
-        self.call_put_rolling = CallPutRolling(tab_cproll)
-        self.call_put_rolling.pack(side="top", fill="both", expand=True)
-        self.nb.add(tab_cproll, text="CALL/PUT rolling 7d")
+        # OPTIONAL: CALL/PUT rolling 7d
+        if "CALL/PUT rolling 7d" not in DISABLED_SHEETS:
+            tab_cp_roll = ttk.Frame(self.nb)
+            self.call_put_rolling = CallPutRolling(tab_cp_roll)
+            self.call_put_rolling.pack(fill="both", expand=True)
+            self.nb.add(tab_cp_roll, text="CALL/PUT rolling 7d")
 
-        tab_hsbc = ttk.Frame(self.nb)
-        self.hsbc_marktanteil = HSBCMarktanteil(tab_hsbc)
-        self.hsbc_marktanteil.pack(fill="both", expand=True)
-        self.nb.add(tab_hsbc, text="HSBC Marktanteil")
+        # OPTIONAL: HSBC Market Share
+        if "HSBC Market Share" not in DISABLED_SHEETS:
+            tab_hsbc = ttk.Frame(self.nb)
+            self.hsbc_marktanteil = HSBCMarktanteil(tab_hsbc)
+            self.hsbc_marktanteil.pack(fill="both", expand=True)
+            self.nb.add(tab_hsbc, text="HSBC Market Share")
 
         tab_top20 = ttk.Frame(self.nb)
         self.top20_sheet = Top20Names(tab_top20)
@@ -248,7 +266,7 @@ class MainWindow(tk.Frame):
                 self.split.sashpos(0, self._last_sash)
         except Exception:
             pass
-        self.btn_toggle_filters.configure(text="Ocultar filtros ▲", state="normal")
+        self.btn_toggle_filters.configure(text="Hide filters ▲", state="normal")
 
     def _hide_filters(self) -> None:
         try:
@@ -259,7 +277,7 @@ class MainWindow(tk.Frame):
             self.split.forget(self.filters_wrap)
         except Exception:
             pass
-        self.btn_toggle_filters.configure(text="Mostrar filtros ▼", state="normal")
+        self.btn_toggle_filters.configure(text="Show filters ▼", state="normal")
 
     # ------------------------------------------------------------------
     # LOGIC
@@ -275,7 +293,7 @@ class MainWindow(tk.Frame):
         self.update_idletasks()
 
         # Show loading dialog
-        self._show_loading("Cargando datos...\nEsto puede tardar unos minutos.")
+        self._show_loading("Loading data...\nThis may take a few minutes.")
 
         def worker() -> None:
             df = None
@@ -300,7 +318,7 @@ class MainWindow(tk.Frame):
             self.service.apply_filters(spec)
         except Exception:
             traceback.print_exc()
-            messagebox.showerror("Error", "Falló la aplicación de filtros.")
+            messagebox.showerror("Error", "Error applying filters.")
             return
         self._refresh_views()
 
@@ -310,18 +328,40 @@ class MainWindow(tk.Frame):
         self._refresh_views()
 
     def _refresh_views(self) -> None:
+        """
+        Refresh only the sheets that actually exist.
+        Disabled sheets are simply skipped (fast & safe).
+        """
         df_view = self.service.dataframe_filtered.head(self.MAX_DISPLAY).copy()
         self.table.show_dataframe(df_view)
 
         df_full = self.service.dataframe_filtered
-        self.volume_sheet.update_plot(df_full)
-        self.volume_summary.update_view(df_full)
-        self.volume_percentage.update_plot(df_full)
-        self.volume_table.update_view(df_full)
-        self.call_put_share.update_plot(df_full)
-        self.call_put_rolling.update_plot(df_full)
-        self.hsbc_marktanteil.update_plot(df_full)
-        self.top20_sheet.update_plot(df_full)
+
+        # --- Always-active sheets ---
+        if hasattr(self, "volume_sheet"):
+            self.volume_sheet.update_plot(df_full)
+
+        if hasattr(self, "volume_table"):
+            self.volume_table.update_view(df_full)
+
+        # --- Optional / disabled sheets ---
+        if hasattr(self, "volume_summary"):
+            self.volume_summary.update_view(df_full)
+
+        if hasattr(self, "volume_percentage"):
+            self.volume_percentage.update_plot(df_full)
+
+        if hasattr(self, "call_put_share"):
+            self.call_put_share.update_plot(df_full)
+
+        if hasattr(self, "call_put_rolling"):
+            self.call_put_rolling.update_plot(df_full)
+
+        if hasattr(self, "hsbc_marktanteil"):
+            self.hsbc_marktanteil.update_plot(df_full)
+
+        if hasattr(self, "top20_sheet"):
+            self.top20_sheet.update_plot(df_full)
 
     # ------------------------------------------------------------------
     # SPLIT HELPERS
@@ -351,7 +391,7 @@ class MainWindow(tk.Frame):
         target = int(total_h * 0.5)
         self._last_filters_px = target
         self._set_filters_height_px(target)
-        self.btn_toggle_filters.configure(text="Ocultar filtros ▲")
+        self.btn_toggle_filters.configure(text="Hide filters ▲")
 
     def _hide_filters_collapse(self) -> None:
         """Collapse filters to their minimum height."""
@@ -362,7 +402,7 @@ class MainWindow(tk.Frame):
             minsize = 0
         target = minsize
         self._set_filters_height_px(target)
-        self.btn_toggle_filters.configure(text="Mostrar filtros ▼")
+        self.btn_toggle_filters.configure(text="Show filters ▼")
 
     def _toggle_filters(self) -> None:
         """Toggle between collapsed and ~half-page filters height."""
@@ -376,9 +416,11 @@ class MainWindow(tk.Frame):
 
         near_collapsed = current <= minsize + 4
         if near_collapsed:
-            target = getattr(self, "_last_filters_px", int(self._get_split_height() * 0.5))
+            target = getattr(
+                self, "_last_filters_px", int(self._get_split_height() * 0.5)
+            )
             self._set_filters_height_px(target)
-            self.btn_toggle_filters.configure(text="Ocultar filtros ▲")
+            self.btn_toggle_filters.configure(text="Hide filters ▲")
         else:
             self._last_filters_px = current
             self._hide_filters_collapse()
@@ -407,15 +449,19 @@ class MainWindow(tk.Frame):
             except Exception:
                 pass
 
-    def _show_loading(self, text: str = "Cargando...") -> None:
+    def _show_loading(self, text: str = "Loading...") -> None:
         """Show a simple loading window with an indeterminate progress bar."""
-        if hasattr(self, "_loading_win") and self._loading_win and self._loading_win.winfo_exists():
+        if (
+            hasattr(self, "_loading_win")
+            and self._loading_win
+            and self._loading_win.winfo_exists()
+        ):
             self._loading_label.config(text=text)
             return
 
         win = tk.Toplevel(self)
         self._loading_win = win
-        win.title("Cargando")
+        win.title("Loading")
         win.geometry("320x110")
         win.configure(bg="white")
         win.resizable(False, False)
@@ -456,7 +502,7 @@ class MainWindow(tk.Frame):
             btn.config(state="normal")
 
         if error is not None or df is None:
-            messagebox.showerror("Fehler", "Die Daten konnten nicht generiert werden.")
+            messagebox.showerror("Error", "Data could not be generated.")
             return
 
         self.btn_apply.config(state="normal")
@@ -465,7 +511,7 @@ class MainWindow(tk.Frame):
         self.filters_panel.build(df)
         self._refresh_all_views_for(produktart)
 
-        self._show_done_popup("La carga de datos ha terminado correctamente.")
+        self._show_done_popup("Data load completed successfully.")
 
     def _refresh_all_views_for(self, produktart: str) -> None:
         """
@@ -474,7 +520,7 @@ class MainWindow(tk.Frame):
         """
         self._refresh_views()
 
-    def _show_done_popup(self, text: str = "Operación completada.") -> None:
+    def _show_done_popup(self, text: str = "Operation completed.") -> None:
         """
         Small toast-like window at bottom-right of the screen.
         Does not restore the main window if it was minimized.

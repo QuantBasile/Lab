@@ -1,0 +1,63 @@
+# ------------------------------
+# Python bytecode / cache
+# ------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# ------------------------------
+# Virtual environments
+# ------------------------------
+.venv/
+venv/
+env/
+ENV/
+
+# ------------------------------
+# Logs
+# ------------------------------
+logs/
+*.log
+*.log.*
+*.out
+*.err
+
+# Rotating logs (e.g. app.log.1, app.log.2.gz, etc.)
+*.gz
+*.zip
+
+# ------------------------------
+# OS / editor junk
+# ------------------------------
+.DS_Store
+Thumbs.db
+
+# VSCode / PyCharm / Spyder
+.vscode/
+.idea/
+*.iml
+.spyproject/
+
+# ------------------------------
+# Build / packaging
+# ------------------------------
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# ------------------------------
+# Jupyter / temp files
+# ------------------------------
+.ipynb_checkpoints/
+*.tmp
+*.temp
+~$*
+
+# ------------------------------
+# Tkinter / Matplotlib cache
+# ------------------------------
+.matplotlib/

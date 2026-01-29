@@ -17,13 +17,15 @@ from ui.call_put_rolling import CallPutRolling
 from ui.hsbc_marktanteil import HSBCMarktanteil
 from ui.top20_names import Top20Names
 from ui.simple_calendar import SimpleDateEntry as DateEntry
+from ui.martin_style_sheet import MartinStyleSheet
+
 
 # ---- QUICK SHEET CONFIG -------------------------------------
 # Sheets that are disabled (not created, not updated)
 DISABLED_SHEETS = {
     "CALL/PUT rolling 7d",
-    "Call/Put Share",
-    "Volume Summary",
+    "Call/Put Share"
+    #"Volume Summary",
     # "HSBC Market Share",
 }
 # ---------------------------------------------------------------
@@ -251,6 +253,11 @@ class MainWindow(tk.Frame):
         self.top20_sheet = Top20Names(tab_top20)
         self.top20_sheet.pack(fill="both", expand=True)
         self.nb.add(tab_top20, text="Top 20 Names")
+        
+        tab_martin = ttk.Frame(self.nb)
+        self.martin_sheet = MartinStyleSheet(tab_martin, top_n=6)
+        self.martin_sheet.pack(fill="both", expand=True)
+        self.nb.add(tab_martin, text="MARTIN STYLE")
 
     # ------------------------------------------------------------------
     # FILTERS TOGGLE
@@ -362,7 +369,12 @@ class MainWindow(tk.Frame):
 
         if hasattr(self, "top20_sheet"):
             self.top20_sheet.update_plot(df_full)
+            
+        if hasattr(self, "martin_sheet"):       
+            self.martin_sheet.update_view(df_full)
 
+        
+            
     # ------------------------------------------------------------------
     # SPLIT HELPERS
     # ------------------------------------------------------------------

@@ -18,6 +18,7 @@ from ui.hsbc_marktanteil import HSBCMarktanteil
 from ui.top20_names import Top20Names
 from ui.simple_calendar import SimpleDateEntry as DateEntry
 from ui.martin_style_sheet import MartinStyleSheet
+from ui.hsbc_comparison_sheet import HSBCComparisonSheet
 
 
 # ---- QUICK SHEET CONFIG -------------------------------------
@@ -255,9 +256,17 @@ class MainWindow(tk.Frame):
         self.nb.add(tab_top20, text="Top 20 Names")
         
         tab_martin = ttk.Frame(self.nb)
-        self.martin_sheet = MartinStyleSheet(tab_martin, top_n=6)
+        self.martin_sheet = MartinStyleSheet(tab_martin)
         self.martin_sheet.pack(fill="both", expand=True)
         self.nb.add(tab_martin, text="MARTIN STYLE")
+        
+        tab_hsbc_comp = ttk.Frame(self.nb)
+        self.hsbc_comp_sheet = HSBCComparisonSheet(tab_hsbc_comp)
+        self.hsbc_comp_sheet.pack(fill="both", expand=True)
+        self.nb.add(tab_hsbc_comp, text="HSBC COMP")
+
+
+        
 
     # ------------------------------------------------------------------
     # FILTERS TOGGLE
@@ -372,6 +381,10 @@ class MainWindow(tk.Frame):
             
         if hasattr(self, "martin_sheet"):       
             self.martin_sheet.update_view(df_full)
+            
+        if hasattr(self, "hsbc_comp_sheet"):
+            self.hsbc_comp_sheet.update_view(df_full)
+
 
         
             

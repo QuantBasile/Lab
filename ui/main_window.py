@@ -19,6 +19,10 @@ from ui.top20_names import Top20Names
 from ui.simple_calendar import SimpleDateEntry as DateEntry
 from ui.martin_style_sheet import MartinStyleSheet
 from ui.hsbc_comparison_sheet import HSBCComparisonSheet
+from ui.stefan_i_sheet import StefanISheet
+from ui.stefan_ii_sheet import StefanIISheet
+
+
 
 
 # ---- QUICK SHEET CONFIG -------------------------------------
@@ -265,6 +269,17 @@ class MainWindow(tk.Frame):
         self.hsbc_comp_sheet.pack(fill="both", expand=True)
         self.nb.add(tab_hsbc_comp, text="HSBC COMP")
 
+        tab_stefan = ttk.Frame(self.nb)
+        self.stefan_sheet = StefanISheet(tab_stefan)
+        self.stefan_sheet.pack(fill="both", expand=True)
+        self.nb.add(tab_stefan, text="Stefan I")
+        
+        tab_stefan2 = ttk.Frame(self.nb)
+        self.stefan2_sheet = StefanIISheet(tab_stefan2)
+        self.stefan2_sheet.pack(fill="both", expand=True)
+        self.nb.add(tab_stefan2, text="Stefan II")
+
+
 
         
 
@@ -381,9 +396,16 @@ class MainWindow(tk.Frame):
             
         if hasattr(self, "martin_sheet"):       
             self.martin_sheet.update_view(df_full)
-            
+                
         if hasattr(self, "hsbc_comp_sheet"):
             self.hsbc_comp_sheet.update_view(df_full)
+
+        if hasattr(self, "stefan_sheet"):
+            self.stefan_sheet.update_view(df_full)
+            
+        if hasattr(self, "stefan2_sheet"):
+            self.stefan2_sheet.update_view(df_full)
+
 
 
         

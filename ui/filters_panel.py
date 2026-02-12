@@ -87,6 +87,8 @@ class FiltersPanel(ttk.Frame):
         except tk.TclError:
             pass
 
+        self.SKIP_FILTER_COLS = {"TRANSACTION_DATE", "EXPIRY"}        
+
         # Palette
         self.WHITE = "#ffffff"
         self.BORDER = "#c7d2fe"

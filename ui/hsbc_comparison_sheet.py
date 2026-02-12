@@ -189,11 +189,7 @@ class HSBCComparisonSheet(ttk.Frame):
             relief="flat", padx=12, pady=6, cursor="hand2"
         ).pack(side="left", padx=(0, 8))
 
-        tk.Button(
-            btns, text="Copy (Excel)", command=self._copy_excel_ready,
-            bg=self.BTN_BG, fg=self.BTN_FG, activebackground="#1d4ed8",
-            relief="flat", padx=12, pady=6, cursor="hand2"
-        ).pack(side="left", padx=(0, 8))
+        # --- REMOVED Copy (Excel) button ---
 
         tk.Button(
             btns, text="Create HTML", command=self._create_html_report,
@@ -217,13 +213,43 @@ class HSBCComparisonSheet(ttk.Frame):
         self._hsb.grid(row=1, column=0, sticky="ew")
 
         self._canvas.bind("<Configure>", lambda e: self._redraw())
-        self._canvas.bind_all("<MouseWheel>", self._on_mousewheel)
-        self._canvas.bind_all("<Shift-MouseWheel>", self._on_shift_mousewheel)
-        self._canvas.bind_all("<Button-4>", self._on_mousewheel)
-        self._canvas.bind_all("<Button-5>", self._on_mousewheel)
 
+        # ---------------------------
+        # Mouse wheel (FIXED like MartinStyleSheet)
+        # Robust: bind_all only while pointer is over the canvas
+        # ---------------------------
+        self._canvas.bind("<Enter>", self._mw_enter)
+        self._canvas.bind("<Leave>", self._mw_leave)
+
+        # Also bind directly to canvas (some setups deliver wheel to widget under pointer)
+        self._canvas.bind("<MouseWheel>", self._on_mousewheel)
+        self._canvas.bind("<Shift-MouseWheel>", self._on_shift_mousewheel)
+        self._canvas.bind("<Button-4>", self._on_mousewheel)
+        self._canvas.bind("<Button-5>", self._on_mousewheel)
+
+        # Keep Ctrl+C shortcut (even if the button is removed)
         self._canvas.bind_all("<Control-c>", self._copy_excel_ready)
         self._canvas.bind_all("<Command-c>", self._copy_excel_ready)
+
+    # ---------------- Mouse wheel scoped binding ----------------
+    def _mw_enter(self, event=None):
+        top = self.winfo_toplevel()
+        top.bind_all("<MouseWheel>", self._on_mousewheel, add="+")
+        top.bind_all("<Shift-MouseWheel>", self._on_shift_mousewheel, add="+")
+        top.bind_all("<Button-4>", self._on_mousewheel, add="+")
+        top.bind_all("<Button-5>", self._on_mousewheel, add="+")
+        return None
+
+    def _mw_leave(self, event=None):
+        top = self.winfo_toplevel()
+        try:
+            top.unbind_all("<MouseWheel>")
+            top.unbind_all("<Shift-MouseWheel>")
+            top.unbind_all("<Button-4>")
+            top.unbind_all("<Button-5>")
+        except Exception:
+            pass
+        return None
 
     # ---------------- Public API ----------------
     def update_view(self, df: pd.DataFrame):
@@ -669,7 +695,8 @@ class HSBCComparisonSheet(ttk.Frame):
                 anchor = "center"
                 tx = x_left + cw / 2
 
-            self._canvas.create_text(tx, self.HEADER_H / 2 - 1, text=col, fill=self.HEADER_FG, font=self._font_head, anchor=anchor)
+            self._canvas.create_text(tx, self.HEADER_H / 2 - 1, text=col,
+                                     fill=self.HEADER_FG, font=self._font_head, anchor=anchor)
             self._canvas.create_line(x_right, 0, x_right, self.HEADER_H, fill="#111827", width=1)
 
         # Body
@@ -724,7 +751,8 @@ class HSBCComparisonSheet(ttk.Frame):
 
                     left_x = cx - total_w / 2
                     arrow_x = left_x + prefix_w + arrow_w / 2
-                    self._canvas.create_text(arrow_x, cy, text=arrow_char, fill=arrow_color, font=self._font_body, anchor="center")
+                    self._canvas.create_text(arrow_x, cy, text=arrow_char, fill=arrow_color,
+                                             font=self._font_body, anchor="center")
                 else:
                     self._canvas.create_text(cx, cy, text=val, fill=self.TEXT, font=self._font_body, anchor="center")
 
@@ -736,7 +764,7 @@ class HSBCComparisonSheet(ttk.Frame):
         except ValueError:
             pass
 
-        # Requested vertical black separators: between 1° and 2°, and between 5° and 6°
+        # Vertical black separators: between 1° and 2°, and between 5° and 6°
         for rank_name in ("1°", "5°"):
             try:
                 idx = self._cols.index(rank_name)
@@ -770,7 +798,7 @@ class HSBCComparisonSheet(ttk.Frame):
         self._redraw()
         return "break"
 
-    # ---------------- Copy Excel-ready ----------------
+    # ---------------- Copy Excel-ready (kept: Ctrl+C shortcut) ----------------
     def _copy_excel_ready(self, event=None):
         if self._view_df.empty:
             if event is None:
@@ -904,7 +932,9 @@ class HSBCComparisonSheet(ttk.Frame):
                     else:
                         val_html = val
 
-                    tds.append(f"<td class='{cls}' style='background:{bg}; color:{self.TEXT}; text-align:{align};'>{val_html}</td>")
+                    tds.append(
+                        f"<td class='{cls}' style='background:{bg}; color:{self.TEXT}; text-align:{align};'>{val_html}</td>"
+                    )
 
                 body_rows.append("<tr>" + "".join(tds) + "</tr>")
 
@@ -926,6 +956,7 @@ class HSBCComparisonSheet(ttk.Frame):
             week_block = render_week_chips(subtitle_lines[0]) if subtitle_lines else ""
             other_lines_html = "".join([f"<div class='explain-line'>{line}</div>" for line in subtitle_lines[1:]])
 
+            # ---- HTML (changes requested): 90vh wrapper + row selection highlight ----
             html = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -983,7 +1014,8 @@ class HSBCComparisonSheet(ttk.Frame):
   }}
 
   .table-wrap {{
-    overflow-x: auto;
+    height: 90vh;                 /* NEW */
+    overflow: auto;               /* NEW: vertical + horizontal */
     -webkit-overflow-scrolling: touch;
     border-radius: 14px;
     box-shadow: 0 10px 28px rgba(2,6,23,0.10);
@@ -1003,7 +1035,7 @@ class HSBCComparisonSheet(ttk.Frame):
     font-weight: 800;
     font-size: 13px;
     border-right: 1px solid #111827;
-    position: sticky;
+    position: sticky;             /* keep sticky header */
     top: 0;
     z-index: 2;
   }}
@@ -1019,6 +1051,11 @@ class HSBCComparisonSheet(ttk.Frame):
   .sep-right {{
     border-right: 2px solid #000000 !important;
   }}
+
+  /* NEW: Row selection */
+  tbody tr.selected td {{
+    background: #cfe8ff !important;
+  }}
 </style>
 </head>
 <body>
@@ -1028,13 +1065,25 @@ class HSBCComparisonSheet(ttk.Frame):
   <div class="explain">{other_lines_html}</div>
 
   <div class="table-wrap">
-    <table>
+    <table id="comp-table">
       <thead><tr>{head_html}</tr></thead>
       <tbody>
         {body_html}
       </tbody>
     </table>
   </div>
+
+  <script>
+    // NEW: Click row to highlight selection
+    document.querySelectorAll("#comp-table tbody tr").forEach(tr => {{
+      tr.addEventListener("click", () => {{
+        document.querySelectorAll("#comp-table tbody tr.selected")
+          .forEach(x => x.classList.remove("selected"));
+        tr.classList.add("selected");
+      }});
+    }});
+  </script>
+
 </body>
 </html>
 """

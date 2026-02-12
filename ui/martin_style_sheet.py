@@ -37,6 +37,14 @@ class MartinStyleSheet(ttk.Frame):
       - ALL row label: 🏁 ALL
       - Copy (Excel) and Create HTML (reports/)
       - Title: "Ranking per underlyings"
+
+    Adjustments requested (without changing anything else):
+      - Remove the Copy (Excel) button (keep Ctrl+C shortcut untouched)
+      - Fix mouse wheel scrolling on the Canvas (robust scoped bind/unbind)
+      - HTML: keep all styling/colors/separators, but:
+          * sticky header
+          * 90vh vertical sizing with overflow auto
+          * click row to highlight selection
     """
 
     MODES = ("ABSOLUT", "PRO_ZEILE")
@@ -143,10 +151,18 @@ class MartinStyleSheet(ttk.Frame):
 
         st.configure("Martin.TFrame", background=self.WHITE)
         st.configure("MartinTop.TFrame", background=self.WHITE)
-        st.configure("MartinTitle.TLabel", background=self.WHITE, foreground=self.TEXT,
-                     font=("Segoe UI Semibold", 16))
-        st.configure("MartinHint.TLabel", background=self.WHITE, foreground=self.SUBTEXT,
-                     font=("Segoe UI", 10))
+        st.configure(
+            "MartinTitle.TLabel",
+            background=self.WHITE,
+            foreground=self.TEXT,
+            font=("Segoe UI Semibold", 16),
+        )
+        st.configure(
+            "MartinHint.TLabel",
+            background=self.WHITE,
+            foreground=self.SUBTEXT,
+            font=("Segoe UI", 10),
+        )
 
     # ---------------- UI ----------------
     def _build_ui(self):
@@ -163,31 +179,35 @@ class MartinStyleSheet(ttk.Frame):
         title_wrap.grid(row=0, column=0, rowspan=2, sticky="w")
 
         self._title_var = tk.StringVar(value=self._title_str)
-        ttk.Label(title_wrap, textvariable=self._title_var, style="MartinTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(title_wrap, textvariable=self._title_var, style="MartinTitle.TLabel").grid(
+            row=0, column=0, sticky="w"
+        )
 
         # Controls + actions (mode + buttons)
         ctr = ttk.Frame(top, style="MartinTop.TFrame")
         ctr.grid(row=0, column=2, rowspan=2, sticky="e")
 
         ttk.Label(ctr, text="Ansicht:", style="MartinHint.TLabel").grid(row=0, column=0, padx=(0, 6))
-        cb_mode = ttk.Combobox(ctr, values=self.MODES, textvariable=self._mode,
-                               state="readonly", width=12)
+        cb_mode = ttk.Combobox(ctr, values=self.MODES, textvariable=self._mode, state="readonly", width=12)
         cb_mode.grid(row=0, column=1)
         cb_mode.bind("<<ComboboxSelected>>", lambda e: self._refresh())
 
         btns = ttk.Frame(ctr, style="MartinTop.TFrame")
         btns.grid(row=1, column=0, columnspan=2, sticky="e", pady=(10, 0))
 
+        # --- REMOVED Copy (Excel) button ---
+        # Keep only Create HTML button
         tk.Button(
-            btns, text="Copy (Excel)", command=self._copy_excel_ready,
-            bg=self.BTN_BG, fg=self.BTN_FG, activebackground="#1d4ed8",
-            relief="flat", padx=12, pady=6, cursor="hand2"
-        ).pack(side="left", padx=(0, 8))
-
-        tk.Button(
-            btns, text="Create HTML", command=self._create_html_report,
-            bg=self.BTN_BG2, fg=self.BTN_FG, activebackground="#0284c7",
-            relief="flat", padx=12, pady=6, cursor="hand2"
+            btns,
+            text="Create HTML",
+            command=self._create_html_report,
+            bg=self.BTN_BG2,
+            fg=self.BTN_FG,
+            activebackground="#0284c7",
+            relief="flat",
+            padx=12,
+            pady=6,
+            cursor="hand2",
         ).pack(side="left")
 
         # Canvas + scrollbars
@@ -207,15 +227,42 @@ class MartinStyleSheet(ttk.Frame):
 
         self._canvas.bind("<Configure>", lambda e: self._on_resize())
 
-        # mouse wheel
-        self._canvas.bind_all("<MouseWheel>", self._on_mousewheel)
-        self._canvas.bind_all("<Shift-MouseWheel>", self._on_shift_mousewheel)
-        self._canvas.bind_all("<Button-4>", self._on_mousewheel)  # Linux
-        self._canvas.bind_all("<Button-5>", self._on_mousewheel)
+        # ---------------------------
+        # Mouse wheel (FIXED)
+        # ---------------------------
+        # Robust approach: bind globally ONLY while mouse is over the canvas.
+        self._canvas.bind("<Enter>", self._mw_enter)
+        self._canvas.bind("<Leave>", self._mw_leave)
 
-        # Ctrl+C
+        # Also bind directly to canvas (some setups deliver wheel directly to the widget)
+        self._canvas.bind("<MouseWheel>", self._on_mousewheel)
+        self._canvas.bind("<Shift-MouseWheel>", self._on_shift_mousewheel)
+        self._canvas.bind("<Button-4>", self._on_mousewheel)  # Linux
+        self._canvas.bind("<Button-5>", self._on_mousewheel)
+
+        # Ctrl+C (kept as-is; useful even without button)
         self._canvas.bind_all("<Control-c>", self._copy_excel_ready)
         self._canvas.bind_all("<Command-c>", self._copy_excel_ready)
+
+    # ---------------- Mouse wheel scoped binding ----------------
+    def _mw_enter(self, event=None):
+        top = self.winfo_toplevel()
+        top.bind_all("<MouseWheel>", self._on_mousewheel, add="+")
+        top.bind_all("<Shift-MouseWheel>", self._on_shift_mousewheel, add="+")
+        top.bind_all("<Button-4>", self._on_mousewheel, add="+")
+        top.bind_all("<Button-5>", self._on_mousewheel, add="+")
+        return None
+
+    def _mw_leave(self, event=None):
+        top = self.winfo_toplevel()
+        try:
+            top.unbind_all("<MouseWheel>")
+            top.unbind_all("<Shift-MouseWheel>")
+            top.unbind_all("<Button-4>")
+            top.unbind_all("<Button-5>")
+        except Exception:
+            pass
+        return None
 
     # ---------------- Public API ----------------
     def update_view(self, df: pd.DataFrame):
@@ -443,7 +490,11 @@ class MartinStyleSheet(ttk.Frame):
         # GROUP max length (use raw groups without emoji prefix for estimate)
         group_series = self._view_df["GROUP"].astype(str)
         # remove semaphore emojis if present (cheap)
-        group_clean = group_series.str.replace("🟢 ", "", regex=False).str.replace("🟡 ", "", regex=False).str.replace("🔴 ", "", regex=False)
+        group_clean = (
+            group_series.str.replace("🟢 ", "", regex=False)
+            .str.replace("🟡 ", "", regex=False)
+            .str.replace("🔴 ", "", regex=False)
+        )
         max_group_len = int(group_clean.str.len().max() or 0)
 
         # Rank: longest issuer name drives width
@@ -541,12 +592,13 @@ class MartinStyleSheet(ttk.Frame):
             w = max(400, int(self._canvas.winfo_width() or 800))
             h = max(200, int(self._canvas.winfo_height() or 400))
             self._canvas.create_text(
-                w / 2, h / 2,
+                w / 2,
+                h / 2,
                 text=self._status_msg,
                 fill=self.SUBTEXT,
                 font=self._font_big,
                 justify="center",
-                anchor="center"
+                anchor="center",
             )
             self._canvas.configure(scrollregion=(0, 0, w, h))
             return
@@ -563,7 +615,14 @@ class MartinStyleSheet(ttk.Frame):
 
         # Header
         self._canvas.create_rectangle(vx0, 0, vx1, self.HEADER_H, fill=self.HEADER_BG, outline=self.HEADER_BG)
-        self._canvas.create_rectangle(vx0, self.HEADER_H - 3, vx1, self.HEADER_H, fill=self.HEADER_ACCENT, outline=self.HEADER_ACCENT)
+        self._canvas.create_rectangle(
+            vx0,
+            self.HEADER_H - 3,
+            vx1,
+            self.HEADER_H,
+            fill=self.HEADER_ACCENT,
+            outline=self.HEADER_ACCENT,
+        )
 
         for ci in range(c0, c1 + 1):
             col = self._cols[ci]
@@ -579,8 +638,7 @@ class MartinStyleSheet(ttk.Frame):
                 tx = x_left + cw / 2
 
             self._canvas.create_text(
-                tx, self.HEADER_H / 2 - 1,
-                text=col, fill=self.HEADER_FG, font=self._font_head, anchor=anchor
+                tx, self.HEADER_H / 2 - 1, text=col, fill=self.HEADER_FG, font=self._font_head, anchor=anchor
             )
             self._canvas.create_line(x_right, 0, x_right, self.HEADER_H, fill="#111827", width=1)
 
@@ -610,11 +668,12 @@ class MartinStyleSheet(ttk.Frame):
                     tx = x_left + cw / 2
 
                 self._canvas.create_text(
-                    tx, (y0 + y1) / 2,
+                    tx,
+                    (y0 + y1) / 2,
                     text=val,
                     fill=self.ALL_ROW_FG if is_all else self.TEXT,
                     font=self._font_body_bold if is_all else self._font_body,
-                    anchor=anchor
+                    anchor=anchor,
                 )
 
         # Separators after 1° and 5°
@@ -661,6 +720,7 @@ class MartinStyleSheet(ttk.Frame):
 
     # ---------------- Copy Excel-ready ----------------
     def _copy_excel_ready(self, event=None):
+        # Kept intact (Ctrl+C). Button removed only.
         if self._view_df.empty:
             try:
                 if event is None:
@@ -728,7 +788,9 @@ class MartinStyleSheet(ttk.Frame):
                 body_rows.append("<tr>" + "".join(tds) + "</tr>")
             body_html = "\n".join(body_rows)
 
-            # MOBILE FRIENDLY: wrap with horizontal scroll
+            # MOBILE FRIENDLY: wrap with horizontal + vertical scroll
+            # + sticky header (kept)
+            # + row selection highlight
             html = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -759,7 +821,8 @@ class MartinStyleSheet(ttk.Frame):
   }}
 
   .table-wrap {{
-    overflow-x: auto;
+    height: 90vh;                 /* requested: vertical sizing */
+    overflow: auto;               /* vertical + horizontal scroll */
     -webkit-overflow-scrolling: touch;
     border-radius: 14px;
     box-shadow: 0 10px 28px rgba(2,6,23,0.10);
@@ -792,6 +855,11 @@ class MartinStyleSheet(ttk.Frame):
     font-size: 13px;
   }}
   .sep-right {{ border-right: 2px solid #000000 !important; }}
+
+  /* Row selection */
+  tbody tr.selected td {{
+    background: #cfe8ff !important;
+  }}
 </style>
 </head>
 <body>
@@ -803,13 +871,25 @@ class MartinStyleSheet(ttk.Frame):
     </div>
 
   <div class="table-wrap">
-    <table>
+    <table id="rank-table">
       <thead><tr>{head_html}</tr></thead>
       <tbody>
         {body_html}
       </tbody>
     </table>
   </div>
+
+  <script>
+    // Click row to highlight selection
+    document.querySelectorAll("#rank-table tbody tr").forEach(tr => {{
+      tr.addEventListener("click", () => {{
+        document.querySelectorAll("#rank-table tbody tr.selected")
+          .forEach(x => x.classList.remove("selected"));
+        tr.classList.add("selected");
+      }});
+    }});
+  </script>
+
 </body>
 </html>
 """

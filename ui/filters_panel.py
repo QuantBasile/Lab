@@ -32,6 +32,7 @@ from pandas.api.types import is_numeric_dtype, is_bool_dtype
 from ui.simple_calendar import SimpleDateEntry as DateEntry
 HAS_TKCAL = True  # we always have our own calendar
 
+SKIP_FILTER_COLS = {"TRANSACTION_DATE", "EXPIRY"}
 
 class FiltersPanel(ttk.Frame):
     """
@@ -250,7 +251,7 @@ class FiltersPanel(ttk.Frame):
             )
 
         # 2) Distribution across rows/columns
-        cols = list(df.columns)
+        cols = [c for c in df.columns if c not in self.SKIP_FILTER_COLS]
         rows = self.ROWS
         cols_per_row = max(1, math.ceil(len(cols) / rows))
 

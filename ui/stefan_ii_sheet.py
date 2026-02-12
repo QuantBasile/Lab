@@ -22,7 +22,7 @@ class StefanIISheet(ttk.Frame):
     Columns:
       - Underlying
       - Side
-      - One column per EXPIRY (HSBC ONLY) [capped, rest -> "Other"]
+      - One column per EXPIRY MONTH (HSBC ONLY) [capped, rest -> "Other"]
       - HSBC Total
       - Market Total (= ALL - HSBC)
       - Market Most Volume expiry (true max expiry in Market, not bucketed)
@@ -31,8 +31,9 @@ class StefanIISheet(ttk.Frame):
       - 🏁 ALL (Total volume)
 
     Styling:
-      - Highlight the HSBC max-expiry cell per row in light green
       - HSBC Total column light red
+      - HSBC expiry month cells: row-wise gradient heatmap (more colorful than max-only)
+        (stronger color = bigger HSBC volume for that expiry-month in that row)
     """
 
     HSBC_NAME = "HSBC"
@@ -79,6 +80,7 @@ class StefanIISheet(ttk.Frame):
         self._col_x: list[int] = []
         self._status_msg: str | None = None
 
+        # (row_idx, col_idx) -> bg color
         self._cell_bg: dict[tuple[int, int], str] = {}
 
         self._font_body = tkfont.Font(family="Segoe UI", size=11)
@@ -109,19 +111,31 @@ class StefanIISheet(ttk.Frame):
         self.ROW_EVEN = "#f7fafc"
         self.GRID = "#e2e8f0"
 
-        self.HSBC_BG = "#fee2e2"     # light red
-        self.MAXEXP_BG = "#dcfce7"   # light green
+        # Totals
+        self.HSBC_BG = "#fee2e2"  # light red
 
-        self.BTN_BG = "#2563eb"
+        # Heatmap colors for HSBC expiry cells
+        # (low -> high)
+        self.HEAT_LOW = "#ecfeff"     # very light cyan
+        self.HEAT_HIGH = "#22c55e"    # strong green
+
         self.BTN_BG2 = "#0ea5e9"
         self.BTN_FG = "#ffffff"
 
         st.configure("S2.TFrame", background=self.WHITE)
         st.configure("S2Top.TFrame", background=self.WHITE)
-        st.configure("S2Title.TLabel", background=self.WHITE, foreground=self.TEXT,
-                     font=("Segoe UI Semibold", 16))
-        st.configure("S2Hint.TLabel", background=self.WHITE, foreground=self.SUB,
-                     font=("Segoe UI", 10))
+        st.configure(
+            "S2Title.TLabel",
+            background=self.WHITE,
+            foreground=self.TEXT,
+            font=("Segoe UI Semibold", 16),
+        )
+        st.configure(
+            "S2Hint.TLabel",
+            background=self.WHITE,
+            foreground=self.SUB,
+            font=("Segoe UI", 10),
+        )
 
     # ---------------- UI ----------------
     def _build_ui(self):
@@ -138,22 +152,28 @@ class StefanIISheet(ttk.Frame):
 
         title_wrap = ttk.Frame(top, style="S2Top.TFrame")
         title_wrap.grid(row=0, column=0, sticky="w")
-        ttk.Label(title_wrap, textvariable=self._title_var, style="S2Title.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(title_wrap, textvariable=self._subtitle_var, style="S2Hint.TLabel").grid(row=1, column=0, sticky="w", pady=(2, 0))
+        ttk.Label(title_wrap, textvariable=self._title_var, style="S2Title.TLabel").grid(
+            row=0, column=0, sticky="w"
+        )
+        ttk.Label(title_wrap, textvariable=self._subtitle_var, style="S2Hint.TLabel").grid(
+            row=1, column=0, sticky="w", pady=(2, 0)
+        )
 
         btns = ttk.Frame(top, style="S2Top.TFrame")
         btns.grid(row=0, column=1, sticky="e")
 
+        # Removed Copy (Excel) button (per request)
         tk.Button(
-            btns, text="Copy (Excel)", command=self._copy_excel_ready,
-            bg=self.BTN_BG, fg=self.BTN_FG, activebackground="#1d4ed8",
-            relief="flat", padx=12, pady=6, cursor="hand2"
-        ).pack(side="left", padx=(0, 8))
-
-        tk.Button(
-            btns, text="Create HTML", command=self._create_html_report,
-            bg=self.BTN_BG2, fg=self.BTN_FG, activebackground="#0284c7",
-            relief="flat", padx=12, pady=6, cursor="hand2"
+            btns,
+            text="Create HTML",
+            command=self._create_html_report,
+            bg=self.BTN_BG2,
+            fg=self.BTN_FG,
+            activebackground="#0284c7",
+            relief="flat",
+            padx=12,
+            pady=6,
+            cursor="hand2",
         ).pack(side="left")
 
         body = ttk.Frame(self, style="S2.TFrame")
@@ -171,6 +191,39 @@ class StefanIISheet(ttk.Frame):
         self._hsb.grid(row=1, column=0, sticky="ew")
 
         self._canvas.bind("<Configure>", lambda e: self._redraw())
+
+        # ---------------------------
+        # Mouse wheel scrolling (FIX)
+        # Robust: bind_all only while pointer is over canvas
+        # ---------------------------
+        self._canvas.bind("<Enter>", self._mw_enter)
+        self._canvas.bind("<Leave>", self._mw_leave)
+
+        # Also bind directly to canvas (some setups deliver wheel directly to widget)
+        self._canvas.bind("<MouseWheel>", self._on_mousewheel)
+        self._canvas.bind("<Shift-MouseWheel>", self._on_shift_mousewheel)
+        self._canvas.bind("<Button-4>", self._on_mousewheel)  # Linux
+        self._canvas.bind("<Button-5>", self._on_mousewheel)
+
+    # ---------------- Mouse wheel scoped binding ----------------
+    def _mw_enter(self, event=None):
+        top = self.winfo_toplevel()
+        top.bind_all("<MouseWheel>", self._on_mousewheel, add="+")
+        top.bind_all("<Shift-MouseWheel>", self._on_shift_mousewheel, add="+")
+        top.bind_all("<Button-4>", self._on_mousewheel, add="+")
+        top.bind_all("<Button-5>", self._on_mousewheel, add="+")
+        return None
+
+    def _mw_leave(self, event=None):
+        top = self.winfo_toplevel()
+        try:
+            top.unbind_all("<MouseWheel>")
+            top.unbind_all("<Shift-MouseWheel>")
+            top.unbind_all("<Button-4>")
+            top.unbind_all("<Button-5>")
+        except Exception:
+            pass
+        return None
 
     # ---------------- Public API ----------------
     def update_view(self, df: pd.DataFrame):
@@ -223,8 +276,8 @@ class StefanIISheet(ttk.Frame):
         side = side.replace({"C": "CALL", "P": "PUT"})
         s["_SIDE"] = np.where(side.isin(["CALL", "PUT"]), side, side)
 
-        # expiry normalized
-        s["_EXP_RAW"] = self._normalize_expiry(s[self.EXPIRY_COL]).astype(str)
+        # expiry normalized -> MONTH LABEL like "Jan-26" (plus OpenEnd)
+        s["_EXP_RAW"] = self._normalize_expiry_month(s[self.EXPIRY_COL]).astype(str)
 
         # issuer group
         issuer = s[self.ISSUER_COL].astype(str)
@@ -237,7 +290,7 @@ class StefanIISheet(ttk.Frame):
             s["_ISIN"] = isin
 
         # ---- Choose expiry columns safely (cap) ----
-        # Use TOTAL volume by expiry (ALL issuers) to select top expiries
+        # Use TOTAL volume by expiry month (ALL issuers) to select top months
         exp_tot = s.groupby("_EXP_RAW", observed=True)[self.VALUE_COL].sum().sort_values(ascending=False)
 
         expiries = exp_tot.index.tolist()
@@ -262,22 +315,20 @@ class StefanIISheet(ttk.Frame):
         if (s["_EXP"] == self.OTHER_BUCKET_LABEL).any():
             exp_cols.append(self.OTHER_BUCKET_LABEL)
 
-        # Keep stable ordering: OpenEnd first if included, then dates, then Other
+        # Keep stable ordering: OpenEnd first if included, then months, then Other
         exp_cols_sorted = []
         if "OpenEnd" in exp_cols:
             exp_cols_sorted.append("OpenEnd")
-        dates = [e for e in exp_cols if e not in ("OpenEnd", self.OTHER_BUCKET_LABEL)]
-        dates = sorted(dates, key=self._expiry_sort_key)
-        exp_cols_sorted += dates
+        months = [e for e in exp_cols if e not in ("OpenEnd", self.OTHER_BUCKET_LABEL)]
+        months = sorted(months, key=self._month_sort_key)
+        exp_cols_sorted += months
         if self.OTHER_BUCKET_LABEL in exp_cols:
             exp_cols_sorted.append(self.OTHER_BUCKET_LABEL)
         exp_cols = exp_cols_sorted
 
-        # ---- HSBC per expiry wide table (SAFE) ----
+        # ---- HSBC per expiry (month) wide table (SAFE) ----
         s_h = s[s["_IS_HSBC"]].copy()
-        if s_h.empty:
-            # still show table with totals (all=market)
-            pass
+        # if HSBC empty, we still show totals; expiry cols will be zeros
 
         hs_exp_wide = pd.pivot_table(
             s_h,
@@ -287,28 +338,34 @@ class StefanIISheet(ttk.Frame):
             aggfunc="sum",
             fill_value=0.0,
             observed=True
-        )
+        ) if not s_h.empty else pd.DataFrame(index=pd.MultiIndex.from_tuples([], names=["_UND", "_SIDE"]))
 
         # ensure all expiry columns exist
         for e in exp_cols:
             if e not in hs_exp_wide.columns:
                 hs_exp_wide[e] = 0.0
-        hs_exp_wide = hs_exp_wide[exp_cols]
+        if not hs_exp_wide.empty:
+            hs_exp_wide = hs_exp_wide[exp_cols]
 
         # ---- Totals (ALL & HSBC) ----
         all_total = s.groupby(["_UND", "_SIDE"], observed=True)[self.VALUE_COL].sum()
-        hs_total = s_h.groupby(["_UND", "_SIDE"], observed=True)[self.VALUE_COL].sum() if not s_h.empty else all_total * 0.0
+        hs_total = (
+            s_h.groupby(["_UND", "_SIDE"], observed=True)[self.VALUE_COL].sum()
+            if not s_h.empty else all_total * 0.0
+        )
         hs_total = hs_total.reindex(all_total.index, fill_value=0.0)
         mk_total = (all_total - hs_total).clip(lower=0.0)
 
         # ---- Underlying total for sorting (CALL+PUT together) ----
         und_total = all_total.groupby(level=0, observed=True).sum().sort_values(ascending=False)
 
-        # ---- Market Most Volume expiry (true raw expiry, no bucketing) ----
+        # ---- Market Most Volume expiry (true raw expiry from original, NOT month-bucketed) ----
+        # We compute from original EXPIRY column for market only
         s_m = s[~s["_IS_HSBC"]].copy()
         if not s_m.empty:
-            mk_exp = s_m.groupby(["_UND", "_SIDE", "_EXP_RAW"], observed=True)[self.VALUE_COL].sum()
-            # idxmax per (UND,SIDE)
+            # use original expiry normalized to date string (for "true" most volume expiry)
+            s_m["_EXP_TRUE"] = self._normalize_expiry_date(df.loc[s_m.index, self.EXPIRY_COL])
+            mk_exp = s_m.groupby(["_UND", "_SIDE", "_EXP_TRUE"], observed=True)[self.VALUE_COL].sum()
             mk_max_exp = mk_exp.groupby(level=[0, 1], observed=True).idxmax()
             mk_max_exp = mk_max_exp.map(lambda t: t[2] if isinstance(t, tuple) and len(t) == 3 else "")
         else:
@@ -316,12 +373,11 @@ class StefanIISheet(ttk.Frame):
 
         # ---- Top 3 ISINs per (UND,SIDE) for HSBC and Market ----
         def top3_isin_text(sub_df: pd.DataFrame) -> pd.Series:
-            # returns Series indexed by (UND,SIDE) with formatted string
             if not has_isin or sub_df.empty:
                 return pd.Series("", index=all_total.index)
             agg = sub_df.groupby(["_UND", "_SIDE", "_ISIN"], observed=True)[self.VALUE_COL].sum()
             out = {}
-            for (und, side), grp in agg.groupby(level=[0, 1], observed=True):
+            for (und, side2), grp in agg.groupby(level=[0, 1], observed=True):
                 g = grp.droplevel([0, 1]).sort_values(ascending=False)
                 tot = float(g.sum())
                 top = g.head(3)
@@ -329,7 +385,7 @@ class StefanIISheet(ttk.Frame):
                 for isin_code, vol in top.items():
                     pct = (100.0 * float(vol) / tot) if tot else 0.0
                     parts.append(f"{isin_code}: {self._fmt_compact(float(vol))} ({pct:.0f}%)")
-                out[(und, side)] = " · ".join(parts)
+                out[(und, side2)] = " · ".join(parts)
             ser = pd.Series(out)
             return ser.reindex(all_total.index, fill_value="")
 
@@ -347,36 +403,35 @@ class StefanIISheet(ttk.Frame):
         sides_order = ["CALL", "PUT"]
 
         for und in und_total.index.tolist():
-            for side in sides_order:
-                key = (und, side)
+            for side2 in sides_order:
+                key = (und, side2)
                 if key not in all_total.index:
                     continue
 
                 # HSBC expiry values
-                exp_vals_num = hs_exp_wide.loc[key].to_numpy(dtype=float) if key in hs_exp_wide.index else np.zeros(len(exp_cols), dtype=float)
-                exp_vals = [self._fmt_compact(v) for v in exp_vals_num]
-
-                # highlight max HSBC expiry cell (exclude Other if you want; I include it because it’s a real bucket)
-                if len(exp_vals_num) > 0 and float(np.max(exp_vals_num)) > 0:
-                    j_max = int(np.argmax(exp_vals_num))
+                if (not hs_exp_wide.empty) and (key in hs_exp_wide.index):
+                    exp_vals_num = hs_exp_wide.loc[key].to_numpy(dtype=float)
                 else:
-                    j_max = None
+                    exp_vals_num = np.zeros(len(exp_cols), dtype=float)
+
+                exp_vals = [self._fmt_compact(v) for v in exp_vals_num]
 
                 hs_t = float(hs_total.loc[key])
                 mk_t = float(mk_total.loc[key])
                 all_t = float(all_total.loc[key])
-
                 mk_max = str(mk_max_exp.get(key, ""))
 
                 row = (
-                    [str(und), str(side)]
+                    [str(und), str(side2)]
                     + exp_vals
-                    + [self._fmt_compact(hs_t),
-                       self._fmt_compact(mk_t),
-                       mk_max,
-                       str(top_isin_h.get(key, "")),
-                       str(top_isin_m.get(key, "")),
-                       self._fmt_compact(all_t)]
+                    + [
+                        self._fmt_compact(hs_t),
+                        self._fmt_compact(mk_t),
+                        mk_max,
+                        str(top_isin_h.get(key, "")),
+                        str(top_isin_m.get(key, "")),
+                        self._fmt_compact(all_t),
+                    ]
                 )
                 r_i = len(rows)
                 rows.append(row)
@@ -385,20 +440,83 @@ class StefanIISheet(ttk.Frame):
                 idx_hs_total = 2 + len(exp_cols)
                 self._cell_bg[(r_i, idx_hs_total)] = self.HSBC_BG
 
-                # highlight HSBC max expiry
-                if j_max is not None:
-                    self._cell_bg[(r_i, 2 + j_max)] = self.MAXEXP_BG
+                # Heatmap across HSBC expiry cells (columns 2 .. 2+len(exp_cols)-1)
+                self._apply_row_heatmap_expiries(r_i, exp_vals_num, base_bg=None)
 
         self._view_df = pd.DataFrame(rows, columns=self._cols)
 
-        # subtitle with cap info
         self._subtitle_var.set(
-            f"HSBC expiry columns capped at {self.MAX_EXPIRY_COLS} (rest → '{self.OTHER_BUCKET_LABEL}'). "
-            f"Market = ALL − HSBC. Green cell = HSBC max expiry per row."
+            f"HSBC expiry MONTH columns capped at {self.MAX_EXPIRY_COLS} (rest → '{self.OTHER_BUCKET_LABEL}'). "
+            f"Market = ALL − HSBC. Heatmap shows HSBC volume intensity across expiries."
         )
 
     # ---------------- Helpers ----------------
-    def _normalize_expiry(self, exp: pd.Series) -> pd.Series:
+    @staticmethod
+    def _blend_hex(c1: str, c2: str, t: float) -> str:
+        """Blend two hex colors (0..1)."""
+        t = float(np.clip(t, 0.0, 1.0))
+        c1 = c1.lstrip("#")
+        c2 = c2.lstrip("#")
+        r1, g1, b1 = int(c1[0:2], 16), int(c1[2:4], 16), int(c1[4:6], 16)
+        r2, g2, b2 = int(c2[0:2], 16), int(c2[2:4], 16), int(c2[4:6], 16)
+        r = int(round(r1 + (r2 - r1) * t))
+        g = int(round(g1 + (g2 - g1) * t))
+        b = int(round(b1 + (b2 - b1) * t))
+        return f"#{r:02x}{g:02x}{b:02x}"
+
+    def _apply_row_heatmap_expiries(self, r_i: int, exp_vals_num: np.ndarray, base_bg: str | None):
+        """
+        Apply heatmap backgrounds to the HSBC expiry columns for a given row.
+
+        exp_vals_num corresponds to exp_cols order.
+        """
+        if exp_vals_num is None or len(exp_vals_num) == 0:
+            return
+
+        vmax = float(np.max(exp_vals_num)) if float(np.max(exp_vals_num)) > 0 else 0.0
+        if vmax <= 0:
+            return
+
+        # expiry columns start at index 2
+        for j, v in enumerate(exp_vals_num):
+            vv = float(v)
+            if vv <= 0:
+                continue
+            t = vv / vmax  # 0..1 in row
+            # boost contrast a bit (gamma)
+            t = t ** 0.65
+            col = self._blend_hex(self.HEAT_LOW, self.HEAT_HIGH, t)
+            self._cell_bg[(r_i, 2 + j)] = col
+
+    def _normalize_expiry_month(self, exp: pd.Series) -> pd.Series:
+        """
+        Normalize expiry to:
+          - "OpenEnd" for NaT / blank / year>=2100
+          - else month label like "Jan-26" (English months)
+        """
+        exp_str = exp.astype(str).str.strip()
+        exp_str = exp_str.replace({"": np.nan, "NaT": np.nan, "nan": np.nan, "None": np.nan})
+        dt = pd.to_datetime(exp_str, errors="coerce")
+
+        rare = dt.isna() | (dt.dt.year >= 2100)
+
+        out = pd.Series(index=exp.index, dtype=object)
+        out[rare] = "OpenEnd"
+
+        # month label for non-rare
+        months = np.array(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], dtype=object)
+        m = dt[~rare].dt.month.astype(int).to_numpy() - 1
+        y = dt[~rare].dt.year.astype(int).to_numpy() % 100
+        lab = pd.Series(months[m], index=dt[~rare].index).astype(str) + "-" + pd.Series(y, index=dt[~rare].index).map(lambda x: f"{int(x):02d}")
+        out[~rare] = lab
+        return out
+
+    def _normalize_expiry_date(self, exp: pd.Series) -> pd.Series:
+        """
+        Normalize expiry to a date string for "true expiry" display:
+          - "OpenEnd" for NaT / blank / year>=2100
+          - else "YYYY-MM-DD"
+        """
         exp_str = exp.astype(str).str.strip()
         exp_str = exp_str.replace({"": np.nan, "NaT": np.nan, "nan": np.nan, "None": np.nan})
         dt = pd.to_datetime(exp_str, errors="coerce")
@@ -409,13 +527,23 @@ class StefanIISheet(ttk.Frame):
         return out
 
     @staticmethod
-    def _expiry_sort_key(x: str):
+    def _month_sort_key(x: str):
+        """Sort key for month labels like 'Jan-26'. 'OpenEnd' first, 'Other' last."""
         if x == "OpenEnd":
-            return (9999, 99, 99)
-        d = pd.to_datetime(x, errors="coerce")
-        if pd.isna(d):
-            return (9998, 99, 99)
-        return (int(d.year), int(d.month), int(d.day))
+            return (0, 0)
+        if x == StefanIISheet.OTHER_BUCKET_LABEL:
+            return (9999, 99)
+        # parse 'Mon-YY'
+        try:
+            mon_map = {"Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
+                       "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12}
+            mon = x[:3]
+            yy = int(x[-2:])
+            year = 2000 + yy
+            mm = mon_map.get(mon, 99)
+            return (year, mm)
+        except Exception:
+            return (9998, 99)
 
     @staticmethod
     def _fmt_compact(x: float) -> str:
@@ -443,11 +571,15 @@ class StefanIISheet(ttk.Frame):
             max_len = int(s.str.len().max() or 0)
             w = max_len * self._char_px + (self.PAD_X * 2) + 20
             w = int(min(self.MAX_W, max(self.MIN_W, w)))
+
+            # Keep your "wide text columns" behavior
             if c in ("Underlying", "Top 3 ISINs HSBC", "Top 3 ISINs Market"):
                 w = min(self.MAX_W, max(w, 1800))
             if c == "Market Most Volume expiry":
                 w = min(self.MAX_W, max(w, 1000))
+
             widths.append(w)
+
         self._col_widths = widths
         self._col_x = self._compute_col_x(widths)
 
@@ -500,12 +632,13 @@ class StefanIISheet(ttk.Frame):
             w = max(400, int(self._canvas.winfo_width() or 800))
             h = max(200, int(self._canvas.winfo_height() or 400))
             self._canvas.create_text(
-                w / 2, h / 2,
+                w / 2,
+                h / 2,
                 text=self._status_msg,
                 fill=self.SUB,
                 font=self._font_big,
                 justify="center",
-                anchor="center"
+                anchor="center",
             )
             self._canvas.configure(scrollregion=(0, 0, w, h))
             return
@@ -522,8 +655,9 @@ class StefanIISheet(ttk.Frame):
 
         # header bg
         self._canvas.create_rectangle(vx0, 0, vx1, self.HEADER_H, fill=self.HEADER_BG, outline=self.HEADER_BG)
-        self._canvas.create_rectangle(vx0, self.HEADER_H - 3, vx1, self.HEADER_H,
-                                      fill=self.HEADER_ACCENT, outline=self.HEADER_ACCENT)
+        self._canvas.create_rectangle(
+            vx0, self.HEADER_H - 3, vx1, self.HEADER_H, fill=self.HEADER_ACCENT, outline=self.HEADER_ACCENT
+        )
 
         for ci in range(c0, c1 + 1):
             col = self._cols[ci]
@@ -534,8 +668,9 @@ class StefanIISheet(ttk.Frame):
             anchor = "w" if ci == 0 else "center"
             tx = x_left + self.PAD_X if anchor == "w" else x_left + cw / 2
 
-            self._canvas.create_text(tx, self.HEADER_H / 2 - 1, text=col, fill=self.HEADER_FG,
-                                     font=self._font_head, anchor=anchor)
+            self._canvas.create_text(
+                tx, self.HEADER_H / 2 - 1, text=col, fill=self.HEADER_FG, font=self._font_head, anchor=anchor
+            )
             self._canvas.create_line(x_right, 0, x_right, self.HEADER_H, fill="#111827", width=1)
 
         for ri in range(r0, r1 + 1):
@@ -570,21 +705,29 @@ class StefanIISheet(ttk.Frame):
         self._canvas.xview(*args)
         self._redraw()
 
-    # ---------------- Copy Excel ----------------
-    def _copy_excel_ready(self):
-        if self._view_df.empty:
-            messagebox.showinfo("Copy", "No data to copy.")
-            return
-        lines = ["\t".join(self._cols)]
-        for r in range(len(self._view_df)):
-            row = [str(self._view_df.iat[r, c]) for c in range(len(self._cols))]
-            lines.append("\t".join(row))
-        txt = "\n".join(lines)
+    # ---------------- Mouse wheel handlers ----------------
+    def _on_mousewheel(self, event):
+        if getattr(event, "delta", 0) != 0:
+            self._canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        else:
+            # Linux
+            if getattr(event, "num", None) == 5:
+                self._canvas.yview_scroll(1, "units")
+            elif getattr(event, "num", None) == 4:
+                self._canvas.yview_scroll(-1, "units")
+        self._redraw()
+        return "break"
 
-        self.clipboard_clear()
-        self.clipboard_append(txt)
-        self.update()
-        messagebox.showinfo("Copy (Excel)", "Copied to clipboard (Excel-ready).")
+    def _on_shift_mousewheel(self, event):
+        if getattr(event, "delta", 0) != 0:
+            self._canvas.xview_scroll(int(-1 * (event.delta / 120)), "units")
+        else:
+            if getattr(event, "num", None) == 5:
+                self._canvas.xview_scroll(1, "units")
+            elif getattr(event, "num", None) == 4:
+                self._canvas.xview_scroll(-1, "units")
+        self._redraw()
+        return "break"
 
     # ---------------- HTML Report ----------------
     def _create_html_report(self):
@@ -593,6 +736,7 @@ class StefanIISheet(ttk.Frame):
             return
 
         try:
+            # NOTE: if you later distribute, consider writing to a user-writable folder
             reports_dir = os.path.abspath(os.path.join(os.getcwd(), "reports"))
             os.makedirs(reports_dir, exist_ok=True)
 
@@ -613,14 +757,11 @@ class StefanIISheet(ttk.Frame):
                 tds = []
                 for c_i, c in enumerate(cols):
                     val = str(df.iat[r, c_i])
-
                     base_bg = "#f7fafc" if (r % 2 == 0) else "#ffffff"
                     bg = self._cell_bg.get((r, c_i), base_bg)
-
                     align = "left" if c_i == 0 else "center"
                     tds.append(f"<td style='background:{bg}; text-align:{align};'>{val}</td>")
                 body_rows.append("<tr>" + "".join(tds) + "</tr>")
-
             body_html = "\n".join(body_rows)
 
             html = f"""<!doctype html>
@@ -647,12 +788,16 @@ class StefanIISheet(ttk.Frame):
     line-height: 1.35;
     white-space: pre-line;
   }}
+
+  /* NEW: 90vh scrollable area (vertical + horizontal) */
   .wrap {{
-    overflow-x: auto;
+    height: 90vh;
+    overflow: auto;
     -webkit-overflow-scrolling: touch;
     border-radius: 14px;
     box-shadow: 0 10px 28px rgba(2,6,23,0.10);
   }}
+
   table {{
     width: max-content;
     border-collapse: collapse;
@@ -660,6 +805,7 @@ class StefanIISheet(ttk.Frame):
     white-space: nowrap;
     min-width: 100%;
   }}
+
   thead th {{
     background: #0b1220;
     color: white;
@@ -673,11 +819,17 @@ class StefanIISheet(ttk.Frame):
     z-index: 2;
   }}
   thead tr {{ border-bottom: 3px solid #2563eb; }}
+
   tbody td {{
     border: 1px solid #e2e8f0;
     padding: 8px 10px;
     font-size: 13px;
     vertical-align: middle;
+  }}
+
+  /* NEW: click row highlight */
+  tbody tr.selected td {{
+    background: #cfe8ff !important;
   }}
 </style>
 </head>
@@ -686,13 +838,24 @@ class StefanIISheet(ttk.Frame):
   <div class="sub">{subtitle}</div>
 
   <div class="wrap">
-    <table>
+    <table id="s2-table">
       <thead><tr>{head_html}</tr></thead>
       <tbody>
         {body_html}
       </tbody>
     </table>
   </div>
+
+  <script>
+    document.querySelectorAll("#s2-table tbody tr").forEach(tr => {{
+      tr.addEventListener("click", () => {{
+        document.querySelectorAll("#s2-table tbody tr.selected")
+          .forEach(x => x.classList.remove("selected"));
+        tr.classList.add("selected");
+      }});
+    }});
+  </script>
+
 </body>
 </html>
 """

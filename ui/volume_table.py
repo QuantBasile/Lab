@@ -1,14 +1,28 @@
 """
 VolumeTable – summary pivot table of transaction volume per issuer.
 
-Features:
-- Group by: UND_NAME / CALL_OPTION / UND_TYPE / TYPE
-- Modes: ABSOLUT (sum of TXN_AMT) or PRO_ZEILE_% (row-normalised %)
-- Optional totals (row "ALL" and column "ALL")
-- Copy to clipboard (Excel-ready TSV)
-- Export to CSV
-- Create HTML report (stores in ./reports and copies path to clipboard)
-- Status bar showing visible table dimensions
+What it does (current design):
+- Pivot table: rows = selected group (e.g. DAY/WEEK/MONTH/UND_NAME/...), columns = ISSUER_NAME
+- Modes:
+    - ABSOLUT     -> sums of TXN_AMT
+    - PRO_ZEILE_% -> row-normalised percentages (issuer columns in %), BUT:
+         * Column ALL is ALWAYS absolute
+         * Row ALL is ALWAYS absolute (issuer columns + ALL)
+- Totals are ALWAYS ON (no checkbox):
+    - Column "ALL" exists always
+    - Row "ALL" exists always
+- Buttons: only two
+    - Copy Excel (blue)
+    - Create HTML (light blue)
+- Issuer column order: HSBC first (if present), then alphabetical
+- HTML report:
+    - sticky header + scroll container
+    - highlights max-issuer cell per row (light green)
+    - click row to highlight entire row
+
+Notes:
+- Group-by options are controlled by GROUP_BY_OPTIONS below.
+- The grouping columns should exist in your incoming DataFrame and ideally be strings (DAY/WEEK/MONTH, etc.).
 """
 
 from __future__ import annotations
@@ -16,7 +30,7 @@ from __future__ import annotations
 import os
 from datetime import datetime
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, messagebox
 from typing import Optional
 
 import numpy as np
@@ -25,10 +39,27 @@ import pandas as pd
 from ui.table_widget import TableFrame
 
 
+# =========================
+# USER CONFIG
+# =========================
+# Choose which columns are allowed in "Gruppieren nach".
+# Keep them as STRING columns if you want them treated as categorical groupings.
+GROUP_BY_OPTIONS = (
+    "UND_NAME",
+    "CALL_OPTION",
+    "UND_TYPE",
+    "TYPE",
+    "DAY",
+    "WEEK",
+    "MONTH",
+    # "ISIN",  # intentionally disabled (too many groups)
+)
+
+
 class VolumeTable(ttk.Frame):
     """Pivot-style summary of volume per issuer."""
 
-    GROUP_FIELDS = ("UND_NAME", "CALL_OPTION", "UND_TYPE", "TYPE")
+    GROUP_FIELDS = GROUP_BY_OPTIONS
     MODES = ("ABSOLUT", "PRO_ZEILE_%")
 
     def __init__(self, master=None) -> None:
@@ -42,9 +73,8 @@ class VolumeTable(ttk.Frame):
         self._pivot_view: pd.DataFrame = pd.DataFrame()
 
         # UI state
-        self._group_by = tk.StringVar(value="UND_NAME")
+        self._group_by = tk.StringVar(value=self.GROUP_FIELDS[0] if self.GROUP_FIELDS else "UND_NAME")
         self._mode = tk.StringVar(value="ABSOLUT")
-        self._with_totals = tk.BooleanVar(value=True)
         self._index_name = "UND_NAME"
 
         self._shape_var = tk.StringVar(value="Dimensionen: 0 × 0")
@@ -56,7 +86,7 @@ class VolumeTable(ttk.Frame):
     # STYLES
     # ----------------------------------------------------------------------
     def _configure_styles(self) -> None:
-        """Apply lightweight green background styling."""
+        """Apply lightweight green background styling + button colors."""
         style = ttk.Style(self)
         try:
             style.theme_use("clam")
@@ -66,6 +96,23 @@ class VolumeTable(ttk.Frame):
         self.LIGHT_GREEN = "#e6f7ec"
         style.configure("VolumeTable.TFrame", background=self.LIGHT_GREEN)
         self.configure(style="VolumeTable.TFrame")
+
+        # Buttons
+        style.configure(
+            "CopyExcel.TButton",
+            background="#1e40af",
+            foreground="white",
+            padding=(10, 6),
+        )
+        style.map("CopyExcel.TButton", background=[("active", "#1d4ed8")])
+
+        style.configure(
+            "CreateHtml.TButton",
+            background="#38bdf8",
+            foreground="#0b1220",
+            padding=(10, 6),
+        )
+        style.map("CreateHtml.TButton", background=[("active", "#7dd3fc")])
 
     # ----------------------------------------------------------------------
     # UI BUILD
@@ -77,9 +124,9 @@ class VolumeTable(ttk.Frame):
         # ----- Top controls -----
         top = ttk.Frame(self, style="VolumeTable.TFrame")
         top.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
-        for c in range(12):
+        for c in range(20):
             top.columnconfigure(c, weight=0)
-        top.columnconfigure(11, weight=1)
+        top.columnconfigure(19, weight=1)
 
         ttk.Label(top, text="Gruppieren nach:").grid(row=0, column=0, padx=(0, 6))
         group_combo = ttk.Combobox(
@@ -103,24 +150,20 @@ class VolumeTable(ttk.Frame):
         mode_combo.grid(row=0, column=3)
         mode_combo.bind("<<ComboboxSelected>>", lambda e: self._refresh_table())
 
-        chk_totals = ttk.Checkbutton(
+        # Only two buttons (as requested)
+        ttk.Button(
             top,
-            text="Summen einblenden",
-            variable=self._with_totals,
-            command=self._refresh_table,
-        )
-        chk_totals.grid(row=0, column=4, padx=(12, 0))
+            text="Copy Excel",
+            style="CopyExcel.TButton",
+            command=self._copy_to_clipboard_excel,
+        ).grid(row=0, column=4, padx=(16, 6))
 
-        # Copy & export buttons
-        ttk.Button(top, text="Kopieren", command=self._copy_to_clipboard_excel).grid(
-            row=0, column=5, padx=(12, 4)
-        )
-        ttk.Button(top, text="Als CSV exportieren", command=self._export_csv).grid(
-            row=0, column=6, padx=(4, 4)
-        )
-        ttk.Button(top, text="Create HTML", command=self._create_html_report).grid(
-            row=0, column=7, padx=(4, 0)
-        )
+        ttk.Button(
+            top,
+            text="Create HTML",
+            style="CreateHtml.TButton",
+            command=self._create_html_report,
+        ).grid(row=0, column=5, padx=(6, 0))
 
         # ----- Table -----
         body = ttk.Frame(self, style="VolumeTable.TFrame")
@@ -182,13 +225,18 @@ class VolumeTable(ttk.Frame):
             observed=False,
         )
 
-        pv = pv.reindex(sorted(pv.columns), axis=1)
+        # Issuer column order: HSBC first (if present), then alphabetical
+        cols = list(pv.columns)
+        hsbc = [c for c in cols if "HSBC" in str(c).upper()]
+        rest = [c for c in cols if c not in hsbc]
+        rest = sorted(rest)
+        pv = pv.reindex(hsbc + rest, axis=1)
 
         # Sort rows descending by total
         pv = pv.loc[pv.sum(axis=1).sort_values(ascending=False).index]
 
         self._pivot_abs = pv.rename_axis(index=self._index_name, columns="ISSUER_NAME")
-        self._pivot_abs.columns.name = None   # <- quita el header fantasma "ISSUER_NAME"
+        self._pivot_abs.columns.name = None  # remove phantom header
 
     def _resolve_index_column(self, df: pd.DataFrame, grp: str) -> str:
         """Determine the internal index column to use for pivot."""
@@ -211,7 +259,11 @@ class VolumeTable(ttk.Frame):
     # VIEW MODE COMPUTATION
     # ----------------------------------------------------------------------
     def _compute_view(self) -> pd.DataFrame:
-        """Compute the view pivot, applying % mode and totals if selected."""
+        """
+        Compute the view pivot, applying % mode.
+
+        Totals are ALWAYS appended.
+        """
         pv = self._pivot_abs.copy()
         if pv.empty:
             return pv
@@ -224,42 +276,52 @@ class VolumeTable(ttk.Frame):
             sums = pv.sum(axis=1).replace(0, np.nan)
             out = (pv.div(sums, axis=0).fillna(0.0) * 100.0)
 
-        if self._with_totals.get():
-            out = self._append_totals(out, mode)
-
+        # ALWAYS append totals
+        out = self._append_totals(out, mode)
         return out
 
     def _append_totals(self, df: pd.DataFrame, mode: str) -> pd.DataFrame:
-        """Append totals row/column.
-
-        Requirement:
-          - Column ALL is ALWAYS absolute, regardless of mode.
-          - In PRO_ZEILE_%, issuer columns stay in %; ALL stays absolute.
+        """
+        Append totals row/column.
+    
+        Rules:
+          - Column ALL is ALWAYS absolute.
+          - Row ALL:
+              * ABSOLUT     -> absolute totals
+              * PRO_ZEILE_% -> percentages by issuer (sum to 100),
+                              BUT column ALL stays absolute
         """
         df = df.copy()
         if df.empty:
             return df
-
+    
         # Absolute totals source (always)
         abs_row_totals = self._pivot_abs.sum(axis=1)
         abs_col_totals = self._pivot_abs.sum(axis=0)
         abs_grand_total = float(abs_row_totals.sum())
-
+    
         # Column ALL: always absolute row totals
         df["ALL"] = abs_row_totals.reindex(df.index).fillna(0.0)
-
-        # Row ALL
+    
+        issuer_cols = [c for c in df.columns if c != "ALL"]
+    
         if mode == "ABSOLUT":
-            issuer_cols = [c for c in df.columns if c != "ALL"]
+            # Row ALL: absolute
             df.loc["ALL", issuer_cols] = abs_col_totals.reindex(issuer_cols).fillna(0.0).values
             df.loc["ALL", "ALL"] = abs_grand_total
+            return df
+    
+        # mode == PRO_ZEILE_%
+        # Row ALL: percentages across issuers (share of grand total)
+        if abs_grand_total > 0:
+            pct = (abs_col_totals.reindex(issuer_cols).fillna(0.0) / abs_grand_total) * 100.0
         else:
-            issuer_cols = [c for c in df.columns if c != "ALL"]
-            base_idx = [i for i in df.index if i != "ALL"]
-            df.loc["ALL", issuer_cols] = df.loc[base_idx, issuer_cols].mean(axis=0).values
-            df.loc["ALL", "ALL"] = abs_grand_total
-
+            pct = pd.Series(0.0, index=issuer_cols)
+    
+        df.loc["ALL", issuer_cols] = pct.values
+        df.loc["ALL", "ALL"] = abs_grand_total  # keep absolute
         return df
+
 
     # ----------------------------------------------------------------------
     # DISPLAY FORMATTING
@@ -314,11 +376,7 @@ class VolumeTable(ttk.Frame):
                 idx = [i for i in self._pivot_view.index if i != "ALL"] + ["ALL"]
                 self._pivot_view = self._pivot_view.loc[idx]
 
-            df_show = (
-                self._pivot_view.reset_index().rename(columns={self._index_name: "GROUP"})
-            )
-
-            # Format for UI
+            df_show = self._pivot_view.reset_index().rename(columns={self._index_name: "GROUP"})
             df_show = self._format_df_for_display(df_show, self._mode.get())
 
             self.table.show_dataframe(df_show)
@@ -337,41 +395,16 @@ class VolumeTable(ttk.Frame):
             tree.column(col, anchor="e")
 
     # ----------------------------------------------------------------------
-    # EXPORT, CLIPBOARD, HTML
+    # CLIPBOARD, HTML
     # ----------------------------------------------------------------------
-    def _export_csv(self) -> None:
-        """Export numeric table (not formatted strings)."""
-        if self._pivot_view.empty:
-            messagebox.showinfo("Exportieren", "Keine Daten zum Exportieren.")
-            return
-
-        df_out = self._pivot_view.reset_index().rename(columns={self._index_name: "GROUP"})
-        df_out.columns.name = None
-        fpath = filedialog.asksaveasfilename(
-            defaultextension=".csv",
-            filetypes=[("CSV", "*.csv")],
-        )
-        if not fpath:
-            return
-        try:
-            df_out.to_csv(fpath, index=False)
-            messagebox.showinfo("Exportieren", f"Erfolgreich exportiert:\n{fpath}")
-        except Exception as ex:
-            messagebox.showerror("Exportieren", f"Export fehlgeschlagen:\n{ex}")
-
     def _excel_copy_df(self) -> pd.DataFrame:
         """Return an Excel-friendly (numeric) DataFrame matching the current view requirements."""
         if self._pivot_view.empty:
             return pd.DataFrame()
 
         mode = self._mode.get()
-
-        # Start from the computed numeric view (already has ALL absolute if totals enabled)
         df_out = self._pivot_view.copy()
 
-        # Enforce numeric shapes for Excel:
-        # - ABSOLUT: integers
-        # - PRO_ZEILE_%: issuer columns 1 decimal, ALL absolute integers
         if mode == "ABSOLUT":
             for c in df_out.columns:
                 df_out[c] = pd.to_numeric(df_out[c], errors="coerce").fillna(0.0).round(0).astype(int)
@@ -382,6 +415,17 @@ class VolumeTable(ttk.Frame):
                 else:
                     df_out[c] = pd.to_numeric(df_out[c], errors="coerce").fillna(0.0).round(1)
 
+            # Row ALL must be absolute in issuer columns too (integers)
+            if "ALL" in df_out.index:
+                issuer_cols = [c for c in df_out.columns if c != "ALL"]
+                df_out.loc["ALL", issuer_cols] = (
+                    pd.to_numeric(df_out.loc["ALL", issuer_cols], errors="coerce")
+                    .fillna(0.0)
+                    .round(0)
+                    .astype(int)
+                    .values
+                )
+
         df_out = df_out.reset_index().rename(columns={self._index_name: "GROUP"})
         df_out.columns.name = None
         return df_out
@@ -389,19 +433,18 @@ class VolumeTable(ttk.Frame):
     def _copy_to_clipboard_excel(self) -> None:
         """Copy current view to clipboard as TSV (paste straight into Excel)."""
         if self._pivot_view.empty:
-            messagebox.showinfo("Kopieren", "Keine Daten zum Kopieren.")
+            messagebox.showinfo("Copy Excel", "Keine Daten zum Kopieren.")
             return
 
         try:
             df_out = self._excel_copy_df()
-            # Excel paste: tabs + newlines
             tsv = df_out.to_csv(sep="\t", index=False, lineterminator="\n")
             self.clipboard_clear()
             self.clipboard_append(tsv)
             self.update()
-            messagebox.showinfo("Kopieren", "Tabelle in die Zwischenablage kopiert (Excel-ready).")
+            messagebox.showinfo("Copy Excel", "Tabelle in die Zwischenablage kopiert (Excel-ready).")
         except Exception as ex:
-            messagebox.showerror("Kopieren", f"Konnte nicht kopiert werden:\n{ex}")
+            messagebox.showerror("Copy Excel", f"Konnte nicht kopiert werden:\n{ex}")
 
     def _create_html_report(self) -> None:
         """Create an HTML report and copy its path to the clipboard."""
@@ -410,9 +453,46 @@ class VolumeTable(ttk.Frame):
             return
 
         try:
-            # Use the DISPLAY formatting for the HTML (human-friendly)
-            df_show = self._pivot_view.reset_index().rename(columns={self._index_name: "GROUP"})
-            df_show = self._format_df_for_display(df_show, self._mode.get())
+            # DISPLAY formatting for HTML
+            df_disp = self._pivot_view.reset_index().rename(columns={self._index_name: "GROUP"})
+            df_disp = self._format_df_for_display(df_disp, self._mode.get())
+
+            # winners (max issuer per row) computed from numeric pivot_view
+            numeric = self._pivot_view.copy()
+            issuer_cols = [c for c in numeric.columns if c != "ALL"]
+
+            winners = {}
+            for idx in numeric.index:
+                g = str(idx)
+                if g == "ALL":
+                    continue
+                row = numeric.loc[idx, issuer_cols]
+                if row.empty:
+                    continue
+                # idxmax on numeric row
+                winners[g] = str(row.idxmax())
+
+            # manual html table (for cell classes)
+            cols = list(df_disp.columns)
+            thead = "<thead><tr>" + "".join([f"<th>{c}</th>" for c in cols]) + "</tr></thead>"
+
+            rows_html = []
+            for _, r in df_disp.iterrows():
+                g = str(r["GROUP"])
+                tds = []
+                for c in cols:
+                    val = r[c]
+                    cls = ""
+                    if c != "GROUP" and g in winners and winners[g] == c:
+                        cls = ' class="maxcell"'
+                    if c == "GROUP":
+                        tds.append(f"<td>{val}</td>")
+                    else:
+                        tds.append(f"<td{cls}>{val}</td>")
+                rows_html.append("<tr>" + "".join(tds) + "</tr>")
+
+            tbody = "<tbody>" + "".join(rows_html) + "</tbody>"
+            html_table = f'<div class="table-wrap"><table id="vol-table">{thead}{tbody}</table></div>'
 
             reports_dir = os.path.abspath(os.path.join(os.getcwd(), "reports"))
             os.makedirs(reports_dir, exist_ok=True)
@@ -423,7 +503,6 @@ class VolumeTable(ttk.Frame):
 
             title = f"VolumeTable – {self._group_by.get()} – {self._mode.get()} – {ts}"
 
-            html_table = df_show.to_html(index=False, escape=False)
             html = f"""<!doctype html>
 <html lang="en">
 <head>
@@ -433,16 +512,28 @@ class VolumeTable(ttk.Frame):
   <style>
     body {{ font-family: Segoe UI, Arial, sans-serif; margin: 18px; }}
     h2 {{ margin: 0 0 12px 0; }}
+    .table-wrap {{ max-height: 95vh; overflow: auto; border: 1px solid #d1d5db; border-radius: 10px; }}
     table {{ border-collapse: collapse; width: 100%; }}
     th, td {{ border: 1px solid #d1d5db; padding: 6px 8px; text-align: right; }}
     th:first-child, td:first-child {{ text-align: left; }}
-    th {{ background: #e6f7ec; font-weight: 600; }}
+    th {{ background: #e6f7ec; font-weight: 600; position: sticky; top: 0; z-index: 2; }}
     tr:nth-child(even) td {{ background: #fbfffc; }}
+    .maxcell {{ background: #e6f7ec !important; }}
+    tr.selected td {{ background: #cfe8ff !important; }}
   </style>
 </head>
 <body>
   <h2>{title}</h2>
   {html_table}
+  <script>
+    document.querySelectorAll("#vol-table tbody tr").forEach(tr => {{
+      tr.addEventListener("click", () => {{
+        document.querySelectorAll("#vol-table tbody tr.selected")
+          .forEach(x => x.classList.remove("selected"));
+        tr.classList.add("selected");
+      }});
+    }});
+  </script>
 </body>
 </html>"""
 

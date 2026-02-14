@@ -348,36 +348,40 @@ class TableFrame(ttk.Frame):
     # Sorting
     # ------------------------------------------------------------------
     def _on_sort(self, col):
-        if self._df is None or self._df.empty:
+        if self._df is None or col not in self._df.columns:
             return
-
-        # Toggle ascending
+    
         asc = self._sort_state.get(col, {}).get("ascending")
-        asc = True if asc is None else not asc
+        asc = True if asc is None else (not asc)
         self._sort_state[col] = {"ascending": asc}
-
-        # Sort entire dataframe (not just page)
-        try:
-            kind = self._col_meta[col]["kind"]
-            if kind in ("int", "number"):
-                s = pd.to_numeric(self._df[col], errors="coerce")
-                self._df = (
-                    self._df.assign(__sort__=s)
-                    .sort_values("__sort__", ascending=asc, na_position="last")
-                    .drop(columns="__sort__")
-                )
-            else:
-                self._df = self._df.sort_values(col, ascending=asc, na_position="last")
-        except Exception:
-            self._df = self._df.sort_values(col, ascending=asc, na_position="last")
-
-        # Update header sort arrows
+    
+        kind = self._col_meta.get(col, {}).get("kind", "text")
+    
+        df2 = self._df.copy()
+    
+        if kind in ("int", "number"):
+            s = pd.to_numeric(df2[col], errors="coerce")
+            df2 = df2.assign(__sortkey=s)
+            df2 = df2.sort_values("__sortkey", ascending=asc, na_position="last").drop(columns="__sortkey")
+        elif kind == "date":
+            s = pd.to_datetime(df2[col], errors="coerce")
+            df2 = df2.assign(__sortkey=s)
+            df2 = df2.sort_values("__sortkey", ascending=asc, na_position="last").drop(columns="__sortkey")
+        else:
+            s = df2[col].astype(str)
+            df2 = df2.assign(__sortkey=s)
+            df2 = df2.sort_values("__sortkey", ascending=asc, na_position="last").drop(columns="__sortkey")
+    
+        # repintar manteniendo estado
+        self.show_dataframe(df2)
+    
+        # actualizar flechas en headers
         for c in self._columns:
-            state = self._sort_state[c]["ascending"] if c == col else None
-            self._set_header(c, text=c, ascending=state)
+            self._set_header(
+                c, text=c,
+                ascending=self._sort_state.get(c, {}).get("ascending") if c == col else None
+            )
 
-        self._page_var.set(1)
-        self._render_current_page()
 
     def _on_header_double_click(self, event):
         region = self._tree.identify("region", event.x, event.y)

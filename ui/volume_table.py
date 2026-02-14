@@ -165,6 +165,20 @@ class VolumeTable(ttk.Frame):
             command=self._create_html_report,
         ).grid(row=0, column=5, padx=(6, 0))
 
+        #only hsbc
+        self._only_zero_hsbc = tk.BooleanVar(value=False)
+        
+        right = ttk.Frame(top)
+        right.grid(row=0, column=99, sticky="e")   # top sigue con grid
+        
+        ttk.Checkbutton(
+            right,
+            text="Hide zero HSBC",
+            variable=self._only_zero_hsbc,
+            command=self._refresh_table
+        ).pack(side="left", padx=5)
+
+
         # ----- Table -----
         body = ttk.Frame(self, style="VolumeTable.TFrame")
         body.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 4))
@@ -377,6 +391,18 @@ class VolumeTable(ttk.Frame):
                 self._pivot_view = self._pivot_view.loc[idx]
 
             df_show = self._pivot_view.reset_index().rename(columns={self._index_name: "GROUP"})
+            # --- FILTER: hide rows where HSBC volume == 0 (numeric) ---
+            if self._only_zero_hsbc.get():
+                hsbc_cols = [c for c in self._pivot_view.columns if "HSBC" in str(c).upper()]
+                if hsbc_cols:
+                    hsbc_col = hsbc_cols[0]  # normalmente solo hay una
+                    # ojo: NO elimines la fila ALL
+                    mask = (self._pivot_view[hsbc_col] != 0)
+                    if "ALL" in self._pivot_view.index:
+                        mask.loc["ALL"] = True
+                    df_show = df_show[mask.reindex(self._pivot_view.index, fill_value=True).values]
+
+            
             df_show = self._format_df_for_display(df_show, self._mode.get())
 
             self.table.show_dataframe(df_show)
@@ -384,6 +410,7 @@ class VolumeTable(ttk.Frame):
 
             rows, cols = df_show.shape
             self._update_shape_label(rows, cols)
+            
 
         except Exception as ex:
             messagebox.showerror("Fehler", f"Tabelle konnte nicht aktualisiert werden:\n{ex}")

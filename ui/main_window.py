@@ -570,32 +570,69 @@ class MainWindow(tk.Frame):
     def _show_done_popup(self, text: str = "Operation completed.") -> None:
         """
         Small toast-like window at bottom-right of the screen.
-        Does not restore the main window if it was minimized.
+        Same as before, but the FRAME blinks (red/yellow) so it's visible.
         """
         win = tk.Toplevel(self)
         win.overrideredirect(True)
         win.attributes("-topmost", True)
-
-        frame = ttk.Frame(win, padding=12)
-        frame.pack(fill="both", expand=True)
-
-        label = ttk.Label(frame, text=text, justify="left")
+        win.configure(bg="white")
+    
+        # --- IMPORTANT: use tk widgets so bg actually changes (ttk ignores bg) ---
+        frame = tk.Frame(win, bg="white")
+        frame.pack(fill="both", expand=True, padx=12, pady=12)
+    
+        label = tk.Label(frame, text=text, justify="left", bg="white", fg="black")
         label.pack(pady=(0, 8))
-
-        btn = ttk.Button(frame, text="OK", command=win.destroy)
-        btn.pack(ipadx=10, pady=(0, 4))
-
+    
+        btn = tk.Button(frame, text="OK", command=win.destroy, bg="white", fg="black",
+                        relief="solid", bd=1, padx=12, pady=3, cursor="hand2")
+        btn.pack(pady=(0, 4))
+    
+        # position bottom-right
         win.update_idletasks()
         sw = win.winfo_screenwidth()
         sh = win.winfo_screenheight()
         ww = win.winfo_width()
         wh = win.winfo_height()
-
+    
         margin_x = 20
         margin_y = 60
         x = sw - ww - margin_x
         y = sh - wh - margin_y
         win.geometry(f"+{x}+{y}")
-
+    
         win.lift()
         win.focus_force()
+    
+        # start blink (frame only)
+        self._blink_toast_frame(win, frame, label, ms=350, mode="yellow")  # mode: "red" or "yellow"
+        
+    def _blink_toast_frame(
+        self,
+        win: tk.Toplevel,
+        frame: tk.Frame,
+        label: tk.Label,
+        ms: int = 350,
+        mode: str = "yellow",  # "yellow" or "red"
+    ) -> None:
+        """Blink visible: changes tk.Frame+Label background (ttk would NOT show it)."""
+        if not win.winfo_exists():
+            return
+    
+        state = not getattr(win, "_toast_blink_state", False)
+        setattr(win, "_toast_blink_state", state)
+    
+        if mode == "red":
+            c1, c2 = "#ffcccc", "white"
+        else:  # yellow default (more 'notification' style)
+            c1, c2 = "#fff2b3", "white"
+    
+        bg = c1 if state else c2
+        try:
+            win.configure(bg=bg)
+            frame.configure(bg=bg)
+            label.configure(bg=bg)
+        except Exception:
+            return
+    
+        win.after(ms, lambda: self._blink_toast_frame(win, frame, label, ms=ms, mode=mode))

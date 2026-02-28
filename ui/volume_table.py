@@ -74,6 +74,7 @@ class VolumeTable(ttk.Frame):
 
         # UI state
         self._group_by = tk.StringVar(value=self.GROUP_FIELDS[0] if self.GROUP_FIELDS else "UND_NAME")
+        self._prev_group_by = self._group_by.get()
         self._mode = tk.StringVar(value="ABSOLUT")
         self._index_name = "UND_NAME"
 
@@ -137,7 +138,7 @@ class VolumeTable(ttk.Frame):
             state="readonly",
         )
         group_combo.grid(row=0, column=1)
-        group_combo.bind("<<ComboboxSelected>>", lambda e: self._rebuild_and_refresh())
+        group_combo.bind("<<ComboboxSelected>>", self._on_group_by_selected)
 
         ttk.Label(top, text="Ansicht:").grid(row=0, column=2, padx=(12, 6))
         mode_combo = ttk.Combobox(
@@ -214,6 +215,26 @@ class VolumeTable(ttk.Frame):
     def _rebuild_and_refresh(self) -> None:
         self._prepare_pivot_abs()
         self._refresh_table()
+        
+    def _on_group_by_selected(self, event=None) -> None:
+        new_group = self._group_by.get()
+    
+        if new_group == "ISIN":
+            msg = (
+                "Are you sure about this?\n"
+                "App will probably collapse if ISINs are too much.\n"
+                "Maybe filter first per underlying, please.\n\n"
+                "Just be sure."
+            )
+            ok = messagebox.askyesno("Warning: grouping by ISIN", msg, parent=self)
+            if not ok:
+                # revert selection
+                self._group_by.set(self._prev_group_by)
+                return
+    
+        self._prev_group_by = new_group
+        self._rebuild_and_refresh()
+    
 
     def _prepare_pivot_abs(self) -> None:
         """Compute the base absolute-value pivot table."""

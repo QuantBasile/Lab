@@ -52,7 +52,7 @@ GROUP_BY_OPTIONS = (
     "DAY",
     "WEEK",
     "MONTH",
-    # "ISIN",  # intentionally disabled (too many groups)
+    "ISIN",  # intentionally disabled (too many groups)
 )
 
 
@@ -187,6 +187,9 @@ class VolumeTable(ttk.Frame):
 
         self.table = TableFrame(body)
         self.table.grid(row=0, column=0, sticky="nsew")
+        
+        # NEW: single click copies clicked cell value
+        self.table._tree.bind("<ButtonRelease-1>", self._on_cell_click_copy, add="+")
 
         # ----- Status bar -----
         status = ttk.Frame(self, style="VolumeTable.TFrame")
@@ -420,6 +423,40 @@ class VolumeTable(ttk.Frame):
         tree = self.table._tree
         for col in tree["columns"]:
             tree.column(col, anchor="e")
+            
+    def _on_cell_click_copy(self, event) -> str:
+        """Copy clicked cell value to clipboard (single cell)."""
+        tree = self.table._tree
+    
+        region = tree.identify("region", event.x, event.y)
+        if region != "cell":
+            return "break"  # ignore headings/separators
+    
+        row_id = tree.identify_row(event.y)
+        col_id = tree.identify_column(event.x)  # e.g. "#1", "#2", ...
+        if not row_id or not col_id:
+            return "break"
+    
+        try:
+            col_index = int(col_id.lstrip("#")) - 1
+        except Exception:
+            return "break"
+    
+        values = tree.item(row_id, "values") or ()
+        if col_index < 0 or col_index >= len(values):
+            return "break"
+    
+        val = "" if values[col_index] is None else str(values[col_index])
+    
+        # Copy ONLY the cell (like Ctrl+C but single value)
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(val)
+            self.update()
+        except Exception:
+            pass
+    
+        return "break"
 
     # ----------------------------------------------------------------------
     # CLIPBOARD, HTML
